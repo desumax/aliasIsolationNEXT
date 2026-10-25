@@ -18,7 +18,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$name = "AliasIsolationNEXT-$Version"
+$name = "aliasIsolationNEXT-DLSS5-$Version"
 $stage = Join-Path $OutDir $name
 $files = Join-Path $stage 'files'
 
@@ -43,7 +43,7 @@ $reshadeShaders = Join-Path $files 'reshade-shaders\Shaders'
 New-Item -ItemType Directory -Force $reshadeShaders | Out-Null
 Copy-Item (Join-Path $repo 'data\reshade\AliasIsolation.fx') $reshadeShaders
 
-Copy-Item (Join-Path $PSScriptRoot 'Install-AliasIsolationNEXT.ps1') $stage
+Copy-Item (Join-Path $PSScriptRoot 'Install-aliasIsolationNEXT-DLSS5.ps1') $stage
 Copy-Item (Join-Path $PSScriptRoot 'Install.bat') $stage
 foreach ($doc in 'README.md', 'CHANGELOG.md', 'LICENSE') { Copy-Item (Join-Path $repo $doc) $stage }
 

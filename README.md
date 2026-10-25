@@ -1,12 +1,46 @@
-## Overview
-Alias Isolation is a mod for Alien: Isolation. It adds temporal anti-aliasing into the shipped game, and fixes a few small issues with the rendering.
+# aliasIsolationNEXT-DLSS5
+**The original Alias Isolation mod, plus bug fixes, plus DLSS 5.**
 
-The mod works by injecting itself into the executable, and hijacking D3D11 calls. It replaces a few shaders, and injects some of its own rendering.
+Alias Isolation is a mod for Alien: Isolation. It adds temporal anti-aliasing (TAA) to the shipped game and fixes a few small rendering issues. It injects itself into the game and hooks D3D11 calls, replacing a few shaders and adding some rendering of its own.
 
-Suggestions for new features or pull requests for this mod are welcome!
+This fork picks up the [original mod](https://github.com/aliasIsolation/aliasIsolation), which is no longer updated. It fixes long-standing bugs, adds an installer, and sets up DLSS 5 through [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder). The files in the game folder keep their original names (`aliasIsolation.asi`, `mods\aliasIsolation`), so existing installs and guides still apply.
+
+## Credits
+* **Alias Isolation** was created by **aliasIsolation**, and version 1.2.0 was maintained by **Ryan J. Gray** ([RyanJGray](https://github.com/RyanJGray)), with contributions from Rick Runyon. It is public domain ([`LICENSE`](LICENSE)), as is this fork. All the TAA work is theirs. Thanks for making this mod a reality, aliasIsolation, whoever you are!
+* **DLSS 5** comes from [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) by jlrouzies-fr (MIT). Its installer also sets up [ReShade](https://reshade.me) by crosire, LumeniteFX and NVIDIA's runtimes, each under its own licence.
+* Bundled: [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by ThirteenAG (MIT), as `d3d11.dll`.
+* Built with [MinHook](https://github.com/TsudaKageyu/minhook), [Dear ImGui](https://github.com/ocornut/imgui), [stb](https://github.com/nothings/stb), [GLM](https://github.com/g-truc/glm), [Tracy](https://github.com/wolfpld/tracy) and ReShade's add-on headers.
+
+## The DLSS 5 pack is downloaded, not bundled
+The DLSS 5 pack can't be shipped in this release: ReShade, LumeniteFX and NVIDIA's runtimes have their own licences and must come from their original sources. The release therefore contains only Alias Isolation and the ASI loader.
+
+When you choose the DLSS 5 step, the installer downloads DLSS5-Feeder's own installer script from that project's latest official GitHub release. It shows you the script's address and SHA-256 hash, and runs it only after you agree. That script then downloads and installs the rest. You need an internet connection for this step. If you skip it, you get Alias Isolation without DLSS 5.
+
+## What this fork fixes
+Issue numbers refer to the [original repository's issues](https://github.com/aliasIsolation/aliasIsolation/issues). [`CHANGELOG.md`](CHANGELOG.md) has the details.
+
+### Fixed (high confidence)
+The cause was found in the code and fixed directly.
+* The mod menu ignored the mouse: the game reads Raw Input and keeps recentring and clipping the cursor. (#62, #64, #66, #69)
+* A damaged or partial `settings.txt` reset every setting to 0. A missing one is now created with the defaults. (#12, #62, #69, #71)
+* `Ctrl+Delete` / `Ctrl+Insert` were unreliable and could switch the mod off mid-frame. (#70)
+* The logo couldn't be turned off without deleting its file. It is now an option, and the texture isn't loaded while it is off. (#72)
+* On CPUs without AVX2 the mod didn't load at all. Legacy AVX1 and SSE3 builds are included, and the installer picks the right one. (#64)
+* Constant buffers were mapped with `MAP_WRITE_NO_OVERWRITE`, which is invalid without D3D11.1 and could show stale values on some drivers.
+* TAA and chromatic aberration views were created every frame and leaked on resolution changes. (#32, #38, #65)
+
+### Possibly fixed (lower confidence, untested)
+These changes target the likely cause, but nobody has confirmed them on the affected setup yet. Reports are welcome.
+* HDR highlights clipped by the chromatic aberration pass with Special K or Windows Auto HDR. It now keeps the swapchain's FP16 or 10-bit format, but it is untested on HDR hardware. (#56, #60)
+* TAA silently switched off when Special K upgraded the scene buffer to FP16. FP16 is now accepted, but this is also untested on HDR hardware. (#56)
+* Low performance on AMD GPUs. The leak fix above may help, but it hasn't been tried on AMD hardware. (#32, #38, #65)
+* The Windows Auto HDR blur or "doubling" may have a second cause besides the clipping. (#60)
+* A crash on some level loads with RTX HDR. The dumps point outside the mod, and the missing logo file involved is no longer required. (#67)
+* The Epic Games Store crash "at `aliasIsolation_hookableOverlayRender`" is not fixed. The crash message now lists `module+offset` for each frame so it can be tracked down.
+* DLSS 5's start-up stall is held back until the first loading screen, so it is hidden there. This is not yet tested in game.
 
 ## Installation instructions
-**Alias Isolation NEXT:** close the game, extract `AliasIsolationNEXT-<version>.zip` anywhere and double-click `Install.bat`. The game is found through Steam, Epic or GOG; if it isn't, paste its folder or pick it in a window. Press Enter to install everything. That covers the mod, skipping the intro videos and the optional DLSS 5 + LumeniteFX pack through [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder)'s own installer, which asks first. The menu also has each step on its own. To install by hand, copy the contents of the `files` folder (without `legacy`) next to `AI.exe`.
+**aliasIsolationNEXT-DLSS5:** close the game, extract `aliasIsolationNEXT-DLSS5-<version>.zip` anywhere and double-click `Install.bat`. The game is found through Steam, Epic or GOG; if it isn't, paste its folder or pick it in a window. Press Enter to install everything. That covers the mod, skipping the intro videos and the optional DLSS 5 + LumeniteFX pack through [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder)'s own installer, which asks first. The menu also has each step on its own. To install by hand, copy the contents of the `files` folder (without `legacy`) next to `AI.exe`.
 
 The original 1.2.0 archive layout:
 Extract the following files from the `AliasIsolation-<version>.7z` archive, obtainable via the releases page, to the folder where _Alien: Isolation_ is installed (you should be in a folder that has a file called `AI.exe`):

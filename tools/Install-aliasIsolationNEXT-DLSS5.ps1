@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Installs and manages Alias Isolation NEXT for Alien: Isolation, plus two optional extras:
+    Installs and manages aliasIsolationNEXT-DLSS5 for Alien: Isolation, plus two optional extras:
     skipping the intro videos, and the DLSS 5 + LumeniteFX pack from DLSS5-Feeder.
 
 .DESCRIPTION
     Run it from the extracted release folder (next to the "files" folder), with no arguments for a menu:
 
-        powershell -ExecutionPolicy Bypass -File .\Install-AliasIsolationNEXT.ps1
+        powershell -ExecutionPolicy Bypass -File .\Install-aliasIsolationNEXT-DLSS5.ps1
 
     Or pass -Action for a single step. The game is found through Steam, Epic or GOG; -GameDir overrides that.
 
@@ -329,12 +329,12 @@ function Set-IntroVideos([string]$Game, [bool]$Skip) {
 
 function Install-Dlss5([string]$Game) {
     Assert-GameClosed
-    $headers = @{ 'User-Agent' = 'AliasIsolationNEXT-installer' }
+    $headers = @{ 'User-Agent' = 'aliasIsolationNEXT-DLSS5-installer' }
     $release = Invoke-RestMethod -Headers $headers "https://api.github.com/repos/$FeederRepo/releases/latest"
     $tag = $release.tag_name
     $url = "https://raw.githubusercontent.com/$FeederRepo/$tag/tools/Install-DLSS5Feeder.ps1"
 
-    $cache = Join-Path $env:TEMP 'AliasIsolationNEXT'
+    $cache = Join-Path $env:TEMP 'aliasIsolationNEXT-DLSS5'
     New-Item -ItemType Directory -Force $cache | Out-Null
     $script = Join-Path $cache "Install-DLSS5Feeder-$tag.ps1"
     Invoke-WebRequest -UseBasicParsing -Headers $headers $url -OutFile $script
@@ -662,7 +662,7 @@ function Invoke-Action([string]$Name, [string]$Game) {
 }
 
 Write-Host ''
-Write-Host "  Alias Isolation NEXT $ModVersion installer"
+Write-Host "  aliasIsolationNEXT-DLSS5 $ModVersion installer"
 $game = Find-GameDir
 
 if ($Action -ne 'Menu') {

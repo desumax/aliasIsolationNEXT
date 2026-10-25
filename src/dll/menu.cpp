@@ -17,7 +17,7 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static const std::string g_modVersion = "Alias Isolation v1.3.0-fixes";
+static const std::string g_modVersion = "aliasIsolationNEXT-DLSS5 v1.3.0-fixes";
 
 Settings g_settings;
 
@@ -444,11 +444,12 @@ void Menu::DrawMenu()
 
             if (aliasIsolation_menu_showAboutWindow)
             {
-                if (ImGui::Begin("Alias Isolation - About", &aliasIsolation_menu_showAboutWindow,
+                if (ImGui::Begin("aliasIsolationNEXT-DLSS5 - About", &aliasIsolation_menu_showAboutWindow,
                                  ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
                 {
                     ImGui::TextColored(ImVec4(255, 170, 0, 1), "%s - Built on %s at %s", g_modVersion.c_str(), __DATE__,
                                        __TIME__);
+                    ImGui::Text("The original Alias Isolation mod, plus bug fixes, plus DLSS 5 (via DLSS5-Feeder).");
                     ImGui::Text("Dear ImGui %s", ImGui::GetVersion());
                     ImGui::Separator();
                     ImGui::Text("Build information:");
@@ -472,9 +473,10 @@ void Menu::DrawMenu()
 #endif
                     ImGui::Separator();
                     ImGui::Text("Mod credits:");
-                    ImGui::Text("Alias Isolation originally by aliasIsolation.");
-                    ImGui::Text("Currently maintained by RyanJGray.");
+                    ImGui::Text("Alias Isolation originally by aliasIsolation, later maintained by RyanJGray.");
                     ImGui::Text("Thanks for making this mod a reality, aliasIsolation - whoever you are!");
+                    ImGui::Text("aliasIsolationNEXT-DLSS5 fork by desumax: github.com/desumax/aliasIsolationNEXT-DLSS5");
+                    ImGui::Text("DLSS 5 comes from DLSS5-Feeder by jlrouzies-fr, which the installer downloads.");
                 }
 
                 ImGui::End();
