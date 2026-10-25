@@ -12,8 +12,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED On)
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoverage-mapping")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fmodules")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+# CPU baseline for the release archives: V3 (AVX2, the main build), AVX1 and SSE3 (the "Legacy" builds for older
+# CPUs, which otherwise fail to load the mod without any message).
+set(ALIASISOLATION_CPU "V3" CACHE STRING "CPU baseline: V3, AVX1 or SSE3")
+set_property(CACHE ALIASISOLATION_CPU PROPERTY STRINGS V3 AVX1 SSE3)
+if(ALIASISOLATION_CPU STREQUAL "V3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3 -mavx")
+elseif(ALIASISOLATION_CPU STREQUAL "AVX1")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v2 -mavx")
+elseif(ALIASISOLATION_CPU STREQUAL "SSE3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse3")
+else()
+    message(FATAL_ERROR "ALIASISOLATION_CPU must be V3, AVX1 or SSE3")
+endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /O2 /fp:fast /GR-")
 
 # Needed to fix Wine/Proton usage with latest MSVC ABI, MS made an ABI-breaking change in VS2022 v17.10

@@ -78,7 +78,9 @@ static void updateConstantBuffer(ID3D11DeviceContext *context, ID3D11Buffer *con
     ZoneScopedN(__FUNCTION__);
 
     D3D11_MAPPED_SUBRESOURCE mapped = {};
-    context->Map(constantBuffer, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped);
+    // WRITE_DISCARD: NO_OVERWRITE on a constant buffer is only allowed with D3D11.1 driver support, and it would
+    // overwrite constants the GPU may still be reading from the previous frame.
+    context->Map(constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
     if (mapped.pData)
     {
         memcpy(mapped.pData, data, sizeBytes);
@@ -91,6 +93,7 @@ void modifySharpenPass(ID3D11DeviceContext *const context)
     ZoneScopedN(__FUNCTION__);
 
     static ID3D11Texture2D *logoTex;
+    static CComPtr<ID3D11ShaderResourceView> logoSrv;
     static ID3D11Buffer *cb;
     static bool resourcesCreated = false;
 
@@ -104,7 +107,9 @@ void modifySharpenPass(ID3D11DeviceContext *const context)
         float pad;
     } constants = {
         // Fade off the logo with time
-        (g_frameConstants.gameTime > 0.0f ? (1.f - glm::smoothstep(10.0f, 12.0f, g_frameConstants.gameTime)) : 0.0f),
+        (g_settings.showLogo && g_frameConstants.gameTime > 0.0f
+             ? (1.f - glm::smoothstep(10.0f, 12.0f, g_frameConstants.gameTime))
+             : 0.0f),
         g_settings.sharpening, g_settings.sharpeningEnabled
         // TODO! Is pad using initialised memory? If it isn't, this could cause
         // cache misses.
@@ -114,6 +119,8 @@ void modifySharpenPass(ID3D11DeviceContext *const context)
     {
         resourcesCreated = true;
 
+        // With the logo turned off it is never loaded, so players don't need to delete the png (#72, #67).
+        if (g_settings.showLogo)
         {
             const std::string logoPath = getDataFilePath("textures\\aliasIsolationLogo.png", false);
             int x, y, n;
@@ -139,6 +146,7 @@ void modifySharpenPass(ID3D11DeviceContext *const context)
                 sub.SysMemSlicePitch = x * y * n;
 
                 DX_CHECK(g_device->CreateTexture2D(&texDesc, &sub, &logoTex));
+                logoSrv = srvFromTex(logoTex);
             }
             stbi_image_free(data);
         }
@@ -149,12 +157,8 @@ void modifySharpenPass(ID3D11DeviceContext *const context)
     // Update constants
     updateConstantBuffer(context, cb, &constants, sizeof(constants));
 
-    CComPtr<ID3D11ShaderResourceView> resources[] = {
-        logoTex ? srvFromTex(logoTex) : nullptr,
-    };
-
     context->PSSetConstantBuffers(10, 1, &cb);
-    context->PSSetShaderResources(20, sizeof(resources) / sizeof(*resources), &resources[0].p);
+    context->PSSetShaderResources(20, 1, &logoSrv.p);
 }
 
 // const char *const s_caString = "Chromatic Aberration";
@@ -175,6 +179,8 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
             static bool resourcesCreated = false;
             static glm::uvec2 resourcesResolution;
             static ID3D11Texture2D *tempTex;
+            static CComPtr<ID3D11RenderTargetView> tempRtv;
+            static CComPtr<ID3D11ShaderResourceView> tempSrv;
             static ID3D11Buffer *constantBuffer;
 
             const uint screenWidth = g_frameConstants.screenWidth;
@@ -206,10 +212,21 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
                     texDesc.Usage = D3D11_USAGE_DEFAULT;
                     texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 
+                    tempRtv.Release();
+                    tempSrv.Release();
+                    if (tempTex)
+                    {
+                        tempTex->Release();
+                    }
                     DX_CHECK(g_device->CreateTexture2D(&texDesc, nullptr, &tempTex));
+                    tempRtv = rtvFromTex(tempTex);
+                    tempSrv = srvFromTex(tempTex);
                 }
 
-                constantBuffer = createConstantBuffer(sizeof(Constants));
+                if (!constantBuffer)
+                {
+                    constantBuffer = createConstantBuffer(sizeof(Constants));
+                }
             }
 
             updateConstantBuffer(context, constantBuffer, &constants, sizeof(constants));
@@ -217,7 +234,6 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
             CComPtr<ID3D11RenderTargetView> targetRtv = nullptr;
             context->OMGetRenderTargets(1, &targetRtv.p, nullptr);
 
-            CComPtr<ID3D11RenderTargetView> tempRtv = rtvFromTex(tempTex);
             context->OMSetRenderTargets(1, &tempRtv.p, nullptr);
 
             // Draw the sharpen pass now into the temporary RT
@@ -225,11 +241,9 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
 
             context->OMSetRenderTargets(1, &targetRtv.p, nullptr);
 
-            CComPtr<ID3D11ShaderResourceView> srvs[] = {srvFromTex(tempTex)};
-
             context->PSSetShader(ShaderRegistry::getPs(chromaticAberrationPsHandle), nullptr, 0);
             context->PSSetConstantBuffers(0, 1, &constantBuffer);
-            context->PSSetShaderResources(0, 1, &srvs[0].p);
+            context->PSSetShaderResources(0, 1, &tempSrv.p);
 
             // ProfileBlock profile("Chromatic Aberration");
             context->Draw(3, 0);

@@ -28,6 +28,9 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
     ZoneScopedN(__FUNCTION__);
 
     static ID3D11Texture2D *accumTex[2];
+    // Views are created once per resolution; creating them every frame is a known slow path on AMD DX11 drivers.
+    static CComPtr<ID3D11ShaderResourceView> accumSrv[2];
+    static CComPtr<ID3D11UnorderedAccessView> accumUav[2];
     static ID3D11SamplerState *pointSampler;
     static ID3D11SamplerState *linearSampler;
     static ID3D11Buffer *cb = NULL;
@@ -74,8 +77,18 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
             texDesc.Usage = D3D11_USAGE_DEFAULT;
             texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS;
 
-            DX_CHECK(g_device->CreateTexture2D(&texDesc, nullptr, &accumTex[0]));
-            DX_CHECK(g_device->CreateTexture2D(&texDesc, nullptr, &accumTex[1]));
+            for (int i = 0; i < 2; ++i)
+            {
+                accumSrv[i].Release();
+                accumUav[i].Release();
+                if (accumTex[i])
+                {
+                    accumTex[i]->Release();
+                }
+                DX_CHECK(g_device->CreateTexture2D(&texDesc, nullptr, &accumTex[i]));
+                accumSrv[i] = srvFromTex(accumTex[i]);
+                accumUav[i] = uavFromTex(accumTex[i]);
+            }
         }
 
         {
@@ -111,6 +124,16 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
     static uint accumIdx = 0;
     context->ClearState();
 
+    // After the mod is re-enabled the history holds a stale frame; seed it with the current one instead of
+    // blending the two (#70). The main texture shares the accumulation format, as the copy at the end relies on.
+    if (g_frameConstants.resetTaaHistory)
+    {
+        g_frameConstants.resetTaaHistory = false;
+        CComPtr<ID3D11Resource> res = nullptr;
+        mainTexView->GetResource(&res);
+        context->CopyResource(accumTex[1 - accumIdx], res);
+    }
+
     // Update constants
     {
         D3D11_MAPPED_SUBRESOURCE res;
@@ -131,10 +154,10 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
         }
     }
 
-    CComPtr<ID3D11ShaderResourceView> resources[] = {mainTexView, srvFromTex(accumTex[1 - accumIdx]),
+    CComPtr<ID3D11ShaderResourceView> resources[] = {mainTexView, accumSrv[1 - accumIdx],
                                                      g_alienResources.velocitySrv, g_alienResources.depthSrv};
 
-    CComPtr<ID3D11UnorderedAccessView> uavs[] = {uavFromTex(accumTex[accumIdx])};
+    CComPtr<ID3D11UnorderedAccessView> uavs[] = {accumUav[accumIdx]};
 
     context->CSSetUnorderedAccessViews(0, sizeof(uavs) / sizeof(*uavs), &uavs[0].p, nullptr);
     context->CSSetShader(ShaderRegistry::getCs(taaCsHandle), nullptr, 0);

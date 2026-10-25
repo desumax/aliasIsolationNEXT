@@ -10,9 +10,11 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
+#include "MinHook.h"
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static const std::string g_modVersion = "Alias Isolation v1.2.0";
+static const std::string g_modVersion = "Alias Isolation v1.3.0";
 
 Settings g_settings;
 
@@ -33,97 +35,133 @@ extern bool g_shaderHooksEnabled;
 // Forward-declarations
 static void SetupDeviceAndContext(IDXGISwapChain &swapChain);
 
+// A:I reads the mouse through Raw Input during gameplay, so the legacy WM_*BUTTON* / WM_MOUSEMOVE messages the
+// menu used to rely on may never arrive, and the game keeps re-centering and re-clipping the cursor every frame.
+// While the menu is open we therefore poll the mouse ourselves and stop the game from moving or clipping the cursor.
+using SetCursorPos_t = BOOL(WINAPI *)(int, int);
+using ClipCursor_t = BOOL(WINAPI *)(const RECT *);
+static SetCursorPos_t g_SetCursorPos_orig = nullptr;
+static ClipCursor_t g_ClipCursor_orig = nullptr;
+
+static BOOL WINAPI SetCursorPos_hook(int x, int y)
+{
+    if (g_showMenu)
+        return TRUE;
+    return g_SetCursorPos_orig(x, y);
+}
+
+static BOOL WINAPI ClipCursor_hook(const RECT *rect)
+{
+    if (g_showMenu)
+        return g_ClipCursor_orig(nullptr);
+    return g_ClipCursor_orig(rect);
+}
+
+static void InstallCursorHooks()
+{
+    static bool installed = false;
+    if (installed)
+        return;
+    installed = true;
+
+    LPVOID setCursorPosTarget = nullptr;
+    LPVOID clipCursorTarget = nullptr;
+    MH_CHECK(MH_CreateHookApiEx(L"user32", "SetCursorPos", reinterpret_cast<LPVOID>(&SetCursorPos_hook),
+                                reinterpret_cast<LPVOID *>(&g_SetCursorPos_orig), &setCursorPosTarget));
+    MH_CHECK(MH_CreateHookApiEx(L"user32", "ClipCursor", reinterpret_cast<LPVOID>(&ClipCursor_hook),
+                                reinterpret_cast<LPVOID *>(&g_ClipCursor_orig), &clipCursorTarget));
+    MH_CHECK(MH_EnableHook(setCursorPosTarget));
+    MH_CHECK(MH_EnableHook(clipCursorTarget));
+}
+
+static void SetMenuVisible(HWND hWnd, bool visible)
+{
+    g_showMenu = visible;
+
+    ImGuiIO &io = ImGui::GetIO();
+    // The game hides the OS cursor in gameplay; let ImGui draw its own so the menu is usable either way.
+    io.MouseDrawCursor = visible;
+
+    if (visible)
+    {
+        g_ClipCursor_orig(nullptr);
+    }
+    else
+    {
+        RECT windowRect;
+        GetClientRect(hWnd, &windowRect);
+        MapWindowPoints(hWnd, NULL, reinterpret_cast<LPPOINT>(&windowRect), 2);
+        g_ClipCursor_orig(&windowRect);
+        io.ClearInputMouse();
+    }
+}
+
+// Feed the mouse to ImGui from the global cursor and button state, which works whether or not the game has
+// legacy mouse messages turned off.
+static void PollMouse()
+{
+    ImGuiIO &io = ImGui::GetIO();
+    if (GetForegroundWindow() != g_hWindow)
+        return;
+
+    POINT pos;
+    if (GetCursorPos(&pos) && ScreenToClient(g_hWindow, &pos))
+        io.AddMousePosEvent(static_cast<float>(pos.x), static_cast<float>(pos.y));
+
+    // Respect swapped mouse buttons: GetAsyncKeyState reports physical buttons.
+    const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+    const int buttons[3] = {swapped ? VK_RBUTTON : VK_LBUTTON, swapped ? VK_LBUTTON : VK_RBUTTON, VK_MBUTTON};
+    for (int i = 0; i < 3; i++)
+        io.AddMouseButtonEvent(i, (GetAsyncKeyState(buttons[i]) & 0x8000) != 0);
+}
+
+static bool IsInputMessage(UINT uMsg)
+{
+    return (uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST) || (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST) ||
+           uMsg == WM_INPUT;
+}
+
 // Our custom window handler to override A:I's own handler.
 // This lets us detect keyboard inputs and pass mouse + keyboard input control to ImGui.
 LRESULT CALLBACK Menu::WndProcHandler(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     ImGuiIO &io = ImGui::GetIO();
-    if (uMsg == WM_KEYDOWN)
+    // Ctrl+Delete is the mod's disable hotkey, so only a plain Delete toggles the menu.
+    if (uMsg == WM_KEYDOWN && wParam == VK_DELETE && (GetKeyState(VK_CONTROL) & 0x8000) == 0)
     {
-        if (wParam == VK_DELETE)
-        {
-            g_showMenu = !g_showMenu;
-
-            if (g_showMenu)
-            {
-                ClipCursor(NULL);
-                ShowCursor(true);
-            }
-            else
-            {
-                RECT windowRect;
-                GetClientRect(hWnd, &windowRect);
-                MapWindowPoints(hWnd, NULL, reinterpret_cast<LPPOINT>(&windowRect), 2);
-                ClipCursor(&windowRect);
-                ShowCursor(false);
-            }
-
-            return true;
-        }
+        SetMenuVisible(hWnd, !g_showMenu);
+        return 0;
     }
 
     if (g_showMenu)
     {
         switch (uMsg)
         {
-        case WM_LBUTTONDOWN:
-            io.MouseDown[0] = true;
-            return true;
-        case WM_LBUTTONUP:
-            io.MouseDown[0] = false;
-            return true;
-        case WM_RBUTTONDOWN:
-            io.MouseDown[1] = true;
-            return true;
-        case WM_RBUTTONUP:
-            io.MouseDown[1] = false;
-            return true;
-        case WM_MBUTTONDOWN:
-            io.MouseDown[2] = true;
-            return true;
-        case WM_MBUTTONUP:
-            io.MouseDown[2] = false;
-            return true;
-        case WM_XBUTTONDOWN:
-            if ((GET_KEYSTATE_WPARAM(wParam) & MK_XBUTTON1) == MK_XBUTTON1)
-                io.MouseDown[3] = true;
-            else if ((GET_KEYSTATE_WPARAM(wParam) & MK_XBUTTON2) == MK_XBUTTON2)
-                io.MouseDown[4] = true;
-            return true;
-        case WM_XBUTTONUP:
-            if ((GET_KEYSTATE_WPARAM(wParam) & MK_XBUTTON1) == MK_XBUTTON1)
-                io.MouseDown[3] = false;
-            else if ((GET_KEYSTATE_WPARAM(wParam) & MK_XBUTTON2) == MK_XBUTTON2)
-                io.MouseDown[4] = false;
-            return true;
         case WM_MOUSEWHEEL:
-            io.MouseWheel += GET_WHEEL_DELTA_WPARAM(wParam) > 0 ? +1.0f : -1.0f;
-            return true;
-        case WM_MOUSEMOVE:
-            io.MousePos.x = (signed short)(lParam);
-            io.MousePos.y = (signed short)(lParam >> 16);
-            return true;
-        case WM_KEYDOWN:
-            if (wParam < 256)
-                io.KeysDown[wParam] = true;
-            return true;
-        case WM_KEYUP:
-            if (wParam < 256)
-                io.KeysDown[wParam] = false;
-            return true;
+            io.AddMouseWheelEvent(0.0f, static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA);
+            return 0;
+        case WM_KILLFOCUS:
+            io.AddFocusEvent(false);
+            break;
+        case WM_SETFOCUS:
+            io.AddFocusEvent(true);
+            break;
         case WM_CHAR:
             if (wParam > 0 && wParam < 0x10000)
-                io.AddInputCharacter((unsigned short)wParam);
-            return true;
-        default:
+                io.AddInputCharacterUTF16(static_cast<unsigned short>(wParam));
             return 0;
+        case WM_INPUT:
+            // Keep the game from turning the camera behind the menu; DefWindowProc frees the raw input buffer.
+            return DefWindowProc(hWnd, uMsg, wParam, lParam);
+        default:
+            break;
         }
-    }
 
-    /*if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
-    {
-        return true;
-    }*/
+        // Swallow the rest of the input, but let window, focus and activation messages reach the game so that
+        // Alt+Tab and resizing keep working while the menu is open.
+        if (IsInputMessage(uMsg))
+            return 0;
+    }
 
     return CallWindowProc(g_originalWndProcHandler, hWnd, uMsg, wParam, lParam);
 }
@@ -214,7 +252,7 @@ static void doMenuStyling()
 
 void Menu::InitMenu(IDXGISwapChain &swapChain)
 {
-    loadSettings(&g_settings);
+    loadOrCreateSettings(&g_settings);
 
     SetupDeviceAndContext(swapChain);
 
@@ -232,6 +270,7 @@ void Menu::InitMenu(IDXGISwapChain &swapChain)
     DX_CHECK(g_pSwapChain->GetDesc(&dxgiSwapChainDesc));
 
     g_hWindow = dxgiSwapChainDesc.OutputWindow;
+    InstallCursorHooks();
     // Replace the game's window handler with our own so we can intercept key events in the game.
     g_originalWndProcHandler = reinterpret_cast<WNDPROC>(
         SetWindowLongPtr(g_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(Menu::WndProcHandler)));
@@ -249,6 +288,7 @@ void Menu::DrawMenu()
     if (g_menuInitialised && g_showMenu)
     {
         // Feed inputs to dear imgui, start new frame.
+        PollMouse();
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
@@ -374,6 +414,8 @@ void Menu::DrawMenu()
             {
                 ImGui::SliderFloat("Chromatic Aberration Amount", &g_settings.chromaticAberration, 0.0f, 1.0f, "%.2f");
             }
+
+            ImGui::Checkbox("Show logo when a level loads", &g_settings.showLogo);
 
             if (ImGui::Button("Save Settings"))
             {

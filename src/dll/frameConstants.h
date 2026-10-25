@@ -18,6 +18,8 @@ struct FrameConstants
 	uint		taaSampleIdx = 0;
 	float		gameTime = 0;
 	bool		taaRanThisFrame = false;
+	// Set when the hooks are toggled back on: the TAA history no longer matches the scene and is re-seeded.
+	bool		resetTaaHistory = false;
 };
 
 extern FrameConstants g_frameConstants;

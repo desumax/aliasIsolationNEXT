@@ -13,29 +13,42 @@
 #include "tracy/Tracy.hpp"
 #include "utilities.h"
 
-void enableShaderHooks();
-void disableShaderHooks();
+void requestShaderHooks(bool enable);
+
+static bool isKeyDown(int vk)
+{
+    return (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
+
+static bool isGameInForeground()
+{
+    DWORD pid = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    return pid == GetCurrentProcessId();
+}
 
 // A thread which sits in the background and checks whether the hook should
 // unload. It will also monitor the keyboard for Alias Isolation disable/enable
 // hotkeys.
+// GetKeyState only tracks keys for the calling thread's own message queue, which this thread doesn't have, so the
+// global async state is read instead. The toggle itself is applied by the render thread at the next Present.
 DWORD WINAPI terminationWatchThread(void *)
 {
     while (true)
     {
-        for (int i = 0; i < 5; ++i)
+        if (isGameInForeground() && isKeyDown(VK_CONTROL))
         {
-            if ((GetKeyState(VK_CONTROL) & GetKeyState(VK_INSERT) & 0x80u) != 0u)
+            if (isKeyDown(VK_INSERT))
             {
-                enableShaderHooks();
+                requestShaderHooks(true);
             }
-            else if ((GetKeyState(VK_CONTROL) & GetKeyState(VK_DELETE) & 0x80u) != 0u)
+            else if (isKeyDown(VK_DELETE))
             {
-                disableShaderHooks();
+                requestShaderHooks(false);
             }
-
-            Sleep(50);
         }
+
+        Sleep(50);
     }
 }
 

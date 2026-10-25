@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <atlbase.h>
+#include <atomic>
 #include <cstdio>
 #include <d3d11.h>
 
@@ -68,6 +69,41 @@ void disableShaderHooks()
 
         g_shaderHooksEnabled = false;
     }
+}
+
+// The hotkeys are read on a background thread, but flipping the hooks there can land between a Map and its Unmap
+// or between the passes of one frame and leave the TAA state half-applied (#70). The thread only records the
+// request, and Present applies it on the render thread between frames.
+static std::atomic<int> g_requestedShaderHooks{-1};
+
+void requestShaderHooks(bool enable)
+{
+    g_requestedShaderHooks = enable ? 1 : 0;
+}
+
+static void applyRequestedShaderHooks()
+{
+    const int requested = g_requestedShaderHooks.exchange(-1);
+    if (requested < 0 || (requested == 1) == g_shaderHooksEnabled)
+    {
+        return;
+    }
+
+    if (requested == 1)
+    {
+        enableShaderHooks();
+    }
+    else
+    {
+        disableShaderHooks();
+    }
+
+    g_alienResources.mappedCbDefaultXSC = nullptr;
+    g_alienResources.mappedCbDefaultVSC = nullptr;
+    g_alienResources.mappedCbDefaultPSC = nullptr;
+    g_frameConstants.taaRanThisFrame = false;
+    g_frameConstants.prevViewProjNoJitter = g_frameConstants.currViewProjNoJitter;
+    g_frameConstants.resetTaaHistory = requested == 1;
 }
 
 // ----------------------------------------------------------------------------------------------------------------
@@ -272,6 +308,8 @@ HRESULT WINAPI Present_hook(IDXGISwapChain *swapChain, UINT SyncInterval, UINT F
     const HRESULT ret = g_d3dHookOrig.Present(swapChain, SyncInterval, Flags);
 
     TracyD3D11Collect(g_tracyD3D11Ctx);
+
+    applyRequestedShaderHooks();
 
     return ret;
 }
