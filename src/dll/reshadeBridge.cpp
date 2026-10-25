@@ -60,6 +60,7 @@ bool containsNoCase(std::string haystack, std::string needle)
 
 constexpr const char *s_homeEffect = "AliasIsolation.fx";
 constexpr const char *s_homeTechnique = "AliasIsolation";
+constexpr const char *s_homeSkipIntrosTechnique = "AliasIsolation_SkipIntroVideos";
 
 bool g_homePage = false;
 // Cleared again after ReShade reloads its effects, which resets the uniforms to the values in the preset.
@@ -126,6 +127,8 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
     }
 
     const bool techniqueEnabled = runtime->get_technique_state(technique);
+    const reshade::api::effect_technique skipIntrosTechnique =
+        runtime->find_technique(s_homeEffect, s_homeSkipIntrosTechnique);
 
     // settings.txt and the files on disk are the truth when the page first appears; after that the page is.
     if (!g_homePageSynced)
@@ -137,7 +140,11 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
         setFloat(runtime, "ChromaticAberration", g_settings.chromaticAberration);
         setBool(runtime, "ShowLogo", g_settings.showLogo);
         g_homeSkipIntros = IntroVideos::getState() == IntroVideos::State::Skipped;
-        setBool(runtime, "SkipIntroVideos", g_homeSkipIntros);
+        if (skipIntrosTechnique != 0 && runtime->get_technique_state(skipIntrosTechnique) != g_homeSkipIntros)
+        {
+            runtime->set_technique_state(skipIntrosTechnique, g_homeSkipIntros);
+            runtime->save_current_preset();
+        }
         g_homeTechniqueEnabled = techniqueEnabled;
         requestShaderHooks(techniqueEnabled);
         return;
@@ -162,7 +169,11 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
         saveSettings(g_settings);
     }
 
-    const bool skipIntros = getBool(runtime, "SkipIntroVideos", g_homeSkipIntros);
+    if (skipIntrosTechnique == 0)
+    {
+        return;
+    }
+    const bool skipIntros = runtime->get_technique_state(skipIntrosTechnique);
     if (skipIntros != g_homeSkipIntros)
     {
         IntroVideos::setSkipped(skipIntros);
@@ -170,7 +181,8 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
         g_homeSkipIntros = IntroVideos::getState() == IntroVideos::State::Skipped;
         if (g_homeSkipIntros != skipIntros)
         {
-            setBool(runtime, "SkipIntroVideos", g_homeSkipIntros);
+            runtime->set_technique_state(skipIntrosTechnique, g_homeSkipIntros);
+            runtime->save_current_preset();
         }
     }
 }

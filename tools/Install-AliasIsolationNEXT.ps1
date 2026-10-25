@@ -494,19 +494,29 @@ function Install-HomePage([string]$Game) {
         Write-TextFile $ini (Set-IniValue $iniText 'ADDON' 'OverlayCollapsed' ($collapsed -join ','))
     }
 
-    # The page is switched on the first time only, so a later reinstall keeps it the way the player left it.
-    $entry = 'AliasIsolation@AliasIsolation.fx'
+    # Each entry is set up the first time only, so a later reinstall keeps it the way the player left it. Alias
+    # Isolation goes first in the Home tab and the intro-video switch last; the mod keeps that switch matched to the
+    # files on disk.
     $presetText = ''
     if (Test-Path $preset) { $presetText = Read-TextFile $preset }
-    $sorting = @()
+    $sorting = @(); $techniques = @()
     $value = Get-IniValue $presetText '' 'TechniqueSorting'
     if ($value) { $sorting = @($value -split ',' | Where-Object { $_ }) }
+    $value = Get-IniValue $presetText '' 'Techniques'
+    if ($value) { $techniques = @($value -split ',' | Where-Object { $_ }) }
+    $changed = $false
+    $entry = 'AliasIsolation@AliasIsolation.fx'
     if ($sorting -notcontains $entry) {
-        $techniques = @()
-        $value = Get-IniValue $presetText '' 'Techniques'
-        if ($value) { $techniques = @($value -split ',' | Where-Object { $_ }) }
-        $presetText = Set-IniValue $presetText '' 'Techniques' ((@($entry) + $techniques | Select-Object -Unique) -join ',')
-        $presetText = Set-IniValue $presetText '' 'TechniqueSorting' ((@($entry) + $sorting) -join ',')
+        $techniques = @($entry) + $techniques; $sorting = @($entry) + $sorting; $changed = $true
+    }
+    $entry = 'AliasIsolation_SkipIntroVideos@AliasIsolation.fx'
+    if ($sorting -notcontains $entry) {
+        if ((Get-IntroState $Game) -eq 'Skipped') { $techniques += $entry }
+        $sorting += $entry; $changed = $true
+    }
+    if ($changed) {
+        $presetText = Set-IniValue $presetText '' 'Techniques' ((@($techniques) | Select-Object -Unique) -join ',')
+        $presetText = Set-IniValue $presetText '' 'TechniqueSorting' ($sorting -join ',')
         Write-TextFile $preset $presetText
     }
     Write-Ok "Alias Isolation is in ReShade's Home tab (open ReShade with the Home key)."

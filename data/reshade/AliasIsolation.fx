@@ -28,12 +28,7 @@ uniform bool ShowLogo <
     ui_label = "Show logo when a level loads";
 > = true;
 
-uniform bool SkipIntroVideos <
-    ui_label = "Skip intro videos (from the next launch)";
-    ui_tooltip = "Moves the AMD, Creative Assembly and Fox logo videos to _intro-videos-backup next to AI.exe.";
-> = false;
-
-// All three vertices land on the same point, so the triangle covers no pixels and the pass costs nothing.
+// All three vertices land on the same point, so the triangle covers no pixels and the pixel shader never runs.
 void AliasIsolation_VS(in uint id : SV_VertexID, out float4 position : SV_Position)
 {
     position = float4(0.0, 0.0, 0.0, 1.0);
@@ -41,13 +36,26 @@ void AliasIsolation_VS(in uint id : SV_VertexID, out float4 position : SV_Positi
 
 float4 AliasIsolation_PS(float4 position : SV_Position) : SV_Target
 {
-    discard;
     return 0.0;
 }
 
 technique AliasIsolation <
     ui_label = "Alias Isolation";
     ui_tooltip = "Temporal anti-aliasing for Alien: Isolation.\nNeeds Anti-Aliasing SMAA T1x, Motion Blur on and the game's Chromatic Aberration off.";
+>
+{
+    pass
+    {
+        VertexShader = AliasIsolation_VS;
+        PixelShader = AliasIsolation_PS;
+    }
+}
+
+// Its own entry in the Home tab: the mod moves the intro videos when it is switched, so it takes effect from the next
+// launch.
+technique AliasIsolation_SkipIntroVideos <
+    ui_label = "Skip intro videos (from the next launch)";
+    ui_tooltip = "Moves the AMD, Creative Assembly and Fox logo videos to _intro-videos-backup next to AI.exe.\nNeeds Alias Isolation installed; it does nothing else.";
 >
 {
     pass

@@ -45,7 +45,7 @@ Settings are saved to `mods\aliasIsolation\settings.txt`, which is created with 
 | `showLogo` | `1` | Set to `0` to hide the logo shown when a level loads |
 
 ## ReShade and intro videos
-With ReShade 6 (add-on support), the installer adds **Alias Isolation** to ReShade's Home tab (`reshade-shaders\Shaders\AliasIsolation.fx`). Its checkbox switches the mod on and off, next to DLSS 5 Feed and LUMENITE. Its options, including **Skip intro videos**, are listed underneath. Keep the *Alias Isolation* add-on enabled in the Add-ons tab: that is what connects the Home entry to the mod, and like every add-on it only loads at game start. Without `AliasIsolation.fx`, the mod menu (Delete) has a **ReShade** section with the same switches instead.
+With ReShade 6 (add-on support), the installer adds **Alias Isolation** to ReShade's Home tab (`reshade-shaders\Shaders\AliasIsolation.fx`). Its checkbox switches the mod on and off, next to DLSS 5 Feed and LUMENITE. Its options are in the Variables list below. **Skip intro videos** is its own entry at the end of the Home list. Keep the *Alias Isolation* add-on enabled in the Add-ons tab: that is what connects the Home entry to the mod, and like every add-on it only loads at game start. Without `AliasIsolation.fx`, the mod menu (Delete) has a **ReShade** section with the same switches instead.
 
 **Skip intro videos** moves the three logo videos from `DATA\UI\MOVIES` to `_intro-videos-backup` and takes effect from the next launch.
 
