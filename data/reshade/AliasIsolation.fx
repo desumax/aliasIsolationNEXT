@@ -28,6 +28,11 @@ uniform bool ShowLogo <
     ui_label = "Show logo when a level loads";
 > = true;
 
+uniform bool StartDlss5AtLoading <
+    ui_label = "Start DLSS 5 at the first loading screen";
+    ui_tooltip = "Keeps DLSS 5 Feed off at launch and switches it on when the first loading screen appears, so its\nstart-up stall is hidden there. It starts anyway after 30 seconds in 3D. Needs DLSS5-Feeder.";
+> = true;
+
 // All three vertices land on the same point, so the triangle covers no pixels and the pixel shader never runs.
 void AliasIsolation_VS(in uint id : SV_VertexID, out float4 position : SV_Position)
 {

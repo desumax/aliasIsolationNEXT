@@ -339,6 +339,7 @@ HRESULT WINAPI Present_hook(IDXGISwapChain *swapChain, UINT SyncInterval, UINT F
 
     {
         ZoneScopedN("Present_hook Menu::DrawMenu");
+        ReShadeBridge::onGameFrame(g_frameConstants.scenePassThisFrame, g_shaderHooksEnabled);
         checkVideoSettings();
         ReShadeBridge::update();
         Menu::DrawMenu();

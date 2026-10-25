@@ -18,6 +18,10 @@ struct Technique
 // Call from the render thread once per frame; registers with ReShade the first time it is found.
 void update();
 
+// Call from the game's Present before the per-frame pass flags are cleared. While DLSS 5 Feed is held back at
+// launch, this watches for the first loading screen (the 3D scene pass stopping) to start it behind.
+void onGameFrame(bool scenePass, bool shaderHooksEnabled);
+
 bool isAvailable();
 
 // True when ReShade has loaded AliasIsolation.fx: the mod's switch and settings are then in ReShade's Home tab, and

@@ -13,6 +13,7 @@
 
 extern Settings g_settings;
 void requestShaderHooks(bool enable);
+std::string getDataFilePath(std::string path, bool critical);
 
 // Shown in ReShade's add-on list.
 extern "C" __declspec(dllexport) const char *NAME = "Alias Isolation";
@@ -187,6 +188,135 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
     }
 }
 
+// --- Holding DLSS 5 back until the first loading screen ---------------------------------------------------------
+//
+// DLSS5-Feeder starts its helper and NVIDIA's runtime when its technique first runs, and the first evaluations stall
+// the game for a second or more. Starting it behind a loading screen hides that. A loading screen shows up here as
+// the 3D scene pass stopping after it has run for a while. If none comes (the first load was missed, or the mod is
+// off and there is no scene pass to watch) the feed starts anyway after a fallback time.
+
+constexpr const char *s_feedEffect = "DLSS5_Feed.fx";
+constexpr const char *s_feedTechnique = "DLSS5_Feed";
+constexpr unsigned s_minSceneFrames = 120;         // 3D frames before a pause can count as a loading screen
+constexpr unsigned s_loadingFrames = 30;           // Frames without the 3D scene that mean a loading screen
+constexpr unsigned s_fallbackSceneFrames = 1800;   // 3D frames in a row after which the feed starts anyway
+constexpr unsigned s_fallbackHooksOffFrames = 600; // Frames with the mod off after which the feed starts anyway
+
+enum class FeedHold
+{
+    Waiting,  // The feed's technique hasn't been seen yet
+    Holding,  // Switched off by the mod until a loading screen
+    Released, // Left alone from now on
+};
+FeedHold g_feedHold = FeedHold::Waiting;
+unsigned g_sceneFrames = 0;
+unsigned g_noSceneFrames = 0;
+unsigned g_hooksOffFrames = 0;
+unsigned g_longestSceneRun = 0;
+const char *g_releaseReason = nullptr; // Set from the game's Present, applied at ReShade's next present
+
+void logInfo(const std::string &text)
+{
+    reshade::log::message(reshade::log::level::info, ("[Alias Isolation] " + text).c_str());
+}
+
+// ReShade may save the preset while the feed is held off (any change in its overlay does). This file says the
+// switch is off because of the hold, so the next launch still treats DLSS 5 as wanted.
+std::string feedHoldMarkerPath()
+{
+    return getDataFilePath("dlss5-held.txt", false);
+}
+
+bool feedHoldMarkerExists()
+{
+    return GetFileAttributesA(feedHoldMarkerPath().c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+void setFeedHoldMarker(bool present)
+{
+    const std::string path = feedHoldMarkerPath();
+    if (!present)
+    {
+        DeleteFileA(path.c_str());
+        return;
+    }
+    const HANDLE file = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                    nullptr);
+    if (file != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(file);
+    }
+}
+
+void beginFeedHold(reshade::api::effect_runtime *runtime)
+{
+    if (g_feedHold != FeedHold::Waiting)
+    {
+        return;
+    }
+    const reshade::api::effect_technique technique = runtime->find_technique(s_feedEffect, s_feedTechnique);
+    if (technique == 0)
+    {
+        return; // Not compiled yet, or DLSS5-Feeder isn't installed
+    }
+
+    const bool heldLastTime = feedHoldMarkerExists();
+    const bool wanted = runtime->get_technique_state(technique) || heldLastTime;
+    if (!wanted || !getBool(runtime, "StartDlss5AtLoading", true))
+    {
+        if (wanted && heldLastTime)
+        {
+            runtime->set_technique_state(technique, true);
+            runtime->save_current_preset();
+        }
+        setFeedHoldMarker(false);
+        g_feedHold = FeedHold::Released;
+        return;
+    }
+
+    runtime->set_technique_state(technique, false);
+    setFeedHoldMarker(true);
+    g_feedHold = FeedHold::Holding;
+    g_sceneFrames = g_noSceneFrames = g_hooksOffFrames = g_longestSceneRun = 0;
+    g_releaseReason = nullptr;
+    logInfo("DLSS 5 Feed is held off until the first loading screen.");
+}
+
+void updateFeedHold(reshade::api::effect_runtime *runtime)
+{
+    beginFeedHold(runtime);
+    if (g_feedHold != FeedHold::Holding)
+    {
+        return;
+    }
+
+    const reshade::api::effect_technique technique = runtime->find_technique(s_feedEffect, s_feedTechnique);
+    if (technique == 0)
+    {
+        g_feedHold = FeedHold::Released;
+        setFeedHoldMarker(false);
+        return;
+    }
+    if (runtime->get_technique_state(technique))
+    {
+        g_releaseReason = "switched on in ReShade";
+    }
+    else if (!getBool(runtime, "StartDlss5AtLoading", true))
+    {
+        g_releaseReason = "the option was turned off";
+    }
+    if (g_releaseReason == nullptr)
+    {
+        return;
+    }
+
+    runtime->set_technique_state(technique, true);
+    runtime->save_current_preset();
+    setFeedHoldMarker(false);
+    g_feedHold = FeedHold::Released;
+    logInfo(std::string("DLSS 5 Feed started: ") + g_releaseReason + ".");
+}
+
 bool isHiddenTechnique(reshade::api::effect_runtime *runtime, reshade::api::effect_technique technique,
                        const std::string &effect, const std::string &name)
 {
@@ -261,6 +391,7 @@ void onReShadePresent(reshade::api::effect_runtime *runtime)
 
     g_effectsEnabled = runtime->get_effects_state();
     syncHomePage(runtime);
+    updateFeedHold(runtime);
 
     // Also refresh now and then, to pick up changes made in ReShade's overlay or with its hotkeys.
     static unsigned framesSinceRefresh = 0;
@@ -271,11 +402,13 @@ void onReShadePresent(reshade::api::effect_runtime *runtime)
     }
 }
 
-void onReShadeReloadedEffects(reshade::api::effect_runtime *)
+void onReShadeReloadedEffects(reshade::api::effect_runtime *runtime)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_techniquesDirty = true;
     g_homePageSynced = false;
+    // As early as possible: DLSS5-Feeder starts on the first frame its technique runs.
+    beginFeedHold(runtime);
 }
 
 void onDestroyEffectRuntime(reshade::api::effect_runtime *)
@@ -323,6 +456,48 @@ void update()
         g_registration = Registration::Unavailable;
     }
     g_framesUntilRetry = 60;
+}
+
+void onGameFrame(bool scenePass, bool shaderHooksEnabled)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_registration != Registration::Registered || g_feedHold != FeedHold::Holding || g_releaseReason)
+    {
+        return;
+    }
+
+    // With the mod off there is no scene pass to watch.
+    g_hooksOffFrames = shaderHooksEnabled ? 0 : g_hooksOffFrames + 1;
+    if (g_hooksOffFrames >= s_fallbackHooksOffFrames)
+    {
+        g_releaseReason = "Alias Isolation is off, so loading screens can't be detected";
+        return;
+    }
+
+    if (scenePass)
+    {
+        if (g_sceneFrames == 0)
+        {
+            logInfo("3D scene started after " + std::to_string(g_noSceneFrames) + " frames without it.");
+        }
+        g_noSceneFrames = 0;
+        if (++g_sceneFrames >= s_fallbackSceneFrames)
+        {
+            g_releaseReason = "no loading screen was seen in the first 30 seconds of 3D";
+        }
+        return;
+    }
+
+    if (g_sceneFrames > 0)
+    {
+        logInfo("3D scene stopped after " + std::to_string(g_sceneFrames) + " frames.");
+        g_longestSceneRun = (std::max)(g_longestSceneRun, g_sceneFrames);
+        g_sceneFrames = 0;
+    }
+    if (++g_noSceneFrames >= s_loadingFrames && g_longestSceneRun >= s_minSceneFrames)
+    {
+        g_releaseReason = "loading screen";
+    }
 }
 
 bool isAvailable()
