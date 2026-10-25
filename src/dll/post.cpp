@@ -192,10 +192,29 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
                 float pad[3];
             } constants = {g_settings.chromaticAberration};
 
-            if (!resourcesCreated || resourcesResolution != glm::uvec2(screenWidth, screenHeight))
+            CComPtr<ID3D11RenderTargetView> targetRtv = nullptr;
+            context->OMGetRenderTargets(1, &targetRtv.p, nullptr);
+
+            // The sharpen pass normally writes to an 8-bit target, but with an HDR swapchain (Special K, Windows
+            // Auto HDR) the target holds values above 1, which an 8-bit intermediate clips (#56, #60).
+            DXGI_FORMAT tempFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+            if (targetRtv)
+            {
+                D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
+                targetRtv->GetDesc(&rtvDesc);
+                if (rtvDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || rtvDesc.Format == DXGI_FORMAT_R10G10B10A2_UNORM)
+                {
+                    tempFormat = rtvDesc.Format;
+                }
+            }
+            static DXGI_FORMAT resourcesFormat = DXGI_FORMAT_UNKNOWN;
+
+            if (!resourcesCreated || resourcesResolution != glm::uvec2(screenWidth, screenHeight) ||
+                resourcesFormat != tempFormat)
             {
                 resourcesCreated = true;
                 resourcesResolution = glm::uvec2(screenWidth, screenHeight);
+                resourcesFormat = tempFormat;
 
                 chromaticAberrationPsHandle = ShaderRegistry::addPixelShader("chromaticAberration_ps.cso");
 
@@ -206,7 +225,7 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
                     texDesc.Height = screenHeight;
                     texDesc.MipLevels = 1;
                     texDesc.ArraySize = 1;
-                    texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                    texDesc.Format = tempFormat;
                     texDesc.SampleDesc.Count = 1;
                     texDesc.SampleDesc.Quality = 0;
                     texDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -230,9 +249,6 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
             }
 
             updateConstantBuffer(context, constantBuffer, &constants, sizeof(constants));
-
-            CComPtr<ID3D11RenderTargetView> targetRtv = nullptr;
-            context->OMGetRenderTargets(1, &targetRtv.p, nullptr);
 
             context->OMSetRenderTargets(1, &tempRtv.p, nullptr);
 

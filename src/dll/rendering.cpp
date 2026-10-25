@@ -81,6 +81,38 @@ void requestShaderHooks(bool enable)
     g_requestedShaderHooks = enable ? 1 : 0;
 }
 
+unsigned g_settingsWarnings = 0;
+static unsigned s_framesWithoutMotionPass = 0;
+static unsigned s_framesWithoutSharpenPass = 0;
+
+// The camera motion pass only runs with Motion Blur on, and the SMAA pass the sharpen filter replaces only with SMAA
+// T1x. Without them TAA has no velocity (smearing) or the frame is never finished. Only frames that rendered the 3D
+// scene count, and a pass has to be missing for a couple of seconds, so menus and loading screens don't warn.
+static void checkVideoSettings()
+{
+    constexpr unsigned threshold = 120;
+
+    if (g_frameConstants.scenePassThisFrame)
+    {
+        s_framesWithoutMotionPass = g_frameConstants.motionPassThisFrame ? 0 : s_framesWithoutMotionPass + 1;
+        s_framesWithoutSharpenPass = g_frameConstants.sharpenPassThisFrame ? 0 : s_framesWithoutSharpenPass + 1;
+    }
+
+    g_settingsWarnings = 0;
+    if (g_shaderHooksEnabled && s_framesWithoutMotionPass > threshold)
+    {
+        g_settingsWarnings |= SettingsWarning_MotionBlur;
+    }
+    if (g_shaderHooksEnabled && s_framesWithoutSharpenPass > threshold)
+    {
+        g_settingsWarnings |= SettingsWarning_Smaa;
+    }
+
+    g_frameConstants.scenePassThisFrame = false;
+    g_frameConstants.motionPassThisFrame = false;
+    g_frameConstants.sharpenPassThisFrame = false;
+}
+
 static void applyRequestedShaderHooks()
 {
     const int requested = g_requestedShaderHooks.exchange(-1);
@@ -104,6 +136,8 @@ static void applyRequestedShaderHooks()
     g_frameConstants.taaRanThisFrame = false;
     g_frameConstants.prevViewProjNoJitter = g_frameConstants.currViewProjNoJitter;
     g_frameConstants.resetTaaHistory = requested == 1;
+    s_framesWithoutMotionPass = 0;
+    s_framesWithoutSharpenPass = 0;
 }
 
 // ----------------------------------------------------------------------------------------------------------------
@@ -159,6 +193,7 @@ HRESULT WINAPI Draw_hook(ID3D11DeviceContext *context, UINT VertexCount, UINT St
         CComPtr<ID3D11ShaderResourceView> depthSrv = nullptr;
         context->PSGetShaderResources(8, 1, &depthSrv);
         g_alienResources.depthSrv = depthSrv;
+        g_frameConstants.motionPassThisFrame = true;
     }
 #endif
 #ifndef ALIASISOLATION_NO_TAA_PASS
@@ -167,6 +202,7 @@ HRESULT WINAPI Draw_hook(ID3D11DeviceContext *context, UINT VertexCount, UINT St
 #ifndef ALIASISOLATION_NO_CA_PASS
     if (caOnDraw(context, currentPs, origDrawFn))
     {
+        g_frameConstants.sharpenPassThisFrame = true;
         finishFrame();
 
         return result;
@@ -302,6 +338,7 @@ HRESULT WINAPI Present_hook(IDXGISwapChain *swapChain, UINT SyncInterval, UINT F
 
     {
         ZoneScopedN("Present_hook Menu::DrawMenu");
+        checkVideoSettings();
         Menu::DrawMenu();
     }
 

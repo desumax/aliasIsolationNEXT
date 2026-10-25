@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0 (community fork)
+## 1.3.0-fixes (aliasIsolationNEXT fork)
 
 ### Fixed
 - The mod menu can now be used with the mouse. The game reads the mouse through Raw Input and keeps recentring and clipping the cursor, so ImGui never saw clicks. While the menu is open the mod now reads the cursor itself, blocks the game's cursor recentring and clipping, and draws its own cursor. (#62, #64, #66, #69)
@@ -9,7 +9,11 @@
 - Constant buffers are updated with `MAP_WRITE_DISCARD`. `MAP_WRITE_NO_OVERWRITE` on a constant buffer is invalid without D3D11.1 support and could show stale constants on some drivers.
 - TAA and chromatic aberration views are created once instead of every frame, and their textures are released on resolution change, which fixes a leak. This may help the low performance reported on AMD GPUs, but it has not been verified on AMD hardware. (#32, #38, #65)
 
+- With an HDR swapchain (Special K, Windows Auto HDR) the chromatic aberration pass copied the frame through an 8-bit texture, clipping highlights. It now uses the swapchain's FP16 or 10-bit format. (#56, #60)
+- TAA silently turned off when an HDR tool upgraded the game's R11G11B10 scene buffer to FP16 (Special K "HDR Remaster 11 bits"). FP16 is now accepted, and the history textures follow the scene buffer's format. (#56)
+
 ### Added
+- An overlay in the top-left corner when the game isn't using SMAA T1x or Motion Blur, which the mod needs. It goes away once the setting is fixed or the mod is turned off.
 - "Show logo when a level loads" option (`showLogo` in `settings.txt`). When it is off, the logo texture is not loaded. (#72)
 - `ALIASISOLATION_CPU` build option (`V3`, `AVX1`, `SSE3`) for legacy CPU builds. (#64)
 - README sections on uninstalling and on settings, and a note on conflicts with RTX HDR, RTSS and Special K. (#62, #67, #74)
@@ -18,5 +22,6 @@
 - Default sharpening is 0.3 and default chromatic aberration is 0.5. Previously both were 0 when no settings file existed. (#71)
 
 ### Not addressed
-- HDR / deep-colour output (#41, #56, #60): needs testing on HDR hardware.
+- The HDR fixes above are untested on HDR hardware, and the Windows Auto HDR "doubling" in #60 may have a second cause.
+- RTX HDR crash on some level loads (#67): the crash dumps point outside the mod's code, and the reporter's missing logo file may have been involved, which 1.3.0-fixes no longer touches. Needs retesting.
 - Barrel distortion (#73) and motion blur rework (#57): feature requests.

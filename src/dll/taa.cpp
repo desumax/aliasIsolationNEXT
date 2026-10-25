@@ -57,10 +57,18 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
     constants.invScreenWidth = 1.f / screenWidth;
     constants.invScreenHeight = 1.f / screenHeight;
 
-    if (!resourcesCreated || resourcesResolution != glm::uvec2(screenWidth, screenHeight))
+    // The history must share the main texture's format for the CopyResource calls. HDR tools such as Special K's
+    // "HDR Remaster" promote the game's R11G11B10 target to FP16 (#56).
+    static DXGI_FORMAT resourcesFormat = DXGI_FORMAT_UNKNOWN;
+    D3D11_TEXTURE2D_DESC mainTexDesc;
+    texFromView(mainTexView)->GetDesc(&mainTexDesc);
+
+    if (!resourcesCreated || resourcesResolution != glm::uvec2(screenWidth, screenHeight) ||
+        resourcesFormat != mainTexDesc.Format)
     {
         resourcesCreated = true;
         resourcesResolution = glm::uvec2(screenWidth, screenHeight);
+        resourcesFormat = mainTexDesc.Format;
 
         taaCsHandle = ShaderRegistry::addComputeShader("taa_cs.cso");
 
@@ -71,7 +79,7 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
             texDesc.Height = screenHeight;
             texDesc.MipLevels = 1;
             texDesc.ArraySize = 1;
-            texDesc.Format = DXGI_FORMAT_R11G11B10_FLOAT;
+            texDesc.Format = mainTexDesc.Format;
             texDesc.SampleDesc.Count = 1;
             texDesc.SampleDesc.Quality = 0;
             texDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -91,6 +99,8 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
             }
         }
 
+        // Samplers and constants don't depend on the resolution; only create them once.
+        if (!pointSampler)
         {
             D3D11_SAMPLER_DESC samplerDesc;
             ZeroMemory(&samplerDesc, sizeof(samplerDesc));
@@ -106,6 +116,7 @@ static void renderTaa(ID3D11DeviceContext *const context, ID3D11ShaderResourceVi
             DX_CHECK(g_device->CreateSamplerState(&samplerDesc, &linearSampler));
         }
 
+        if (!cb)
         {
             // Fill in a buffer description.
             D3D11_BUFFER_DESC cbDesc;
@@ -206,6 +217,7 @@ bool taaOnDraw(ID3D11DeviceContext *context, ID3D11VertexShader *currentVs, ID3D
 
     if (shouldRunTaa)
     {
+        g_frameConstants.scenePassThisFrame = true;
         CComPtr<ID3D11ShaderResourceView> mainTexView = nullptr;
         context->PSGetShaderResources(0, 1, &mainTexView.p);
 
@@ -218,8 +230,12 @@ bool taaOnDraw(ID3D11DeviceContext *context, ID3D11VertexShader *currentVs, ID3D
             D3D11_TEXTURE2D_DESC mainTexDesc;
             mainTex->GetDesc(&mainTexDesc);
 
-            if (mainTexDesc.Format == DXGI_FORMAT_R11G11B10_FLOAT &&
-                !!(mainTexDesc.BindFlags & D3D11_BIND_RENDER_TARGET))
+            // R11G11B10 is the game's own format; FP16 is what HDR tools upgrade it to (#56).
+            const bool supportedFormat = mainTexDesc.Format == DXGI_FORMAT_R11G11B10_FLOAT ||
+                                         mainTexDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
+            if (supportedFormat && !!(mainTexDesc.BindFlags & D3D11_BIND_RENDER_TARGET) &&
+                mainTexDesc.Width == g_frameConstants.screenWidth &&
+                mainTexDesc.Height == g_frameConstants.screenHeight)
             {
                 g_alienResources.mainTexView = mainTexView;
 

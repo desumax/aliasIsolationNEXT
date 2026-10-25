@@ -1,5 +1,6 @@
 #include "menu.h"
 #include "common.h"
+#include "frameConstants.h"
 #include "settings.h"
 
 #include <backends/imgui_impl_dx11.h>
@@ -14,7 +15,7 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static const std::string g_modVersion = "Alias Isolation v1.3.0";
+static const std::string g_modVersion = "Alias Isolation v1.3.0-fixes";
 
 Settings g_settings;
 
@@ -283,146 +284,183 @@ void Menu::InitMenu(IDXGISwapChain &swapChain)
     g_menuInitialised = true;
 }
 
+// Shown on top of the game, menu open or not, until the video settings are fixed or the mod is disabled.
+static void DrawSettingsWarning()
+{
+    if (!g_settingsWarnings)
+    {
+        return;
+    }
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.75f);
+    ImGui::Begin("Alias Isolation - Video settings", NULL,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing);
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Alias Isolation needs these video settings:");
+    if (g_settingsWarnings & SettingsWarning_Smaa)
+    {
+        ImGui::Text("- Anti-Aliasing: SMAA T1x");
+    }
+    if (g_settingsWarnings & SettingsWarning_MotionBlur)
+    {
+        ImGui::Text("- Motion Blur: Enabled");
+    }
+    ImGui::Text("Ctrl+Delete turns the mod off.");
+    ImGui::End();
+}
+
 void Menu::DrawMenu()
 {
-    if (g_menuInitialised && g_showMenu)
+    if (g_menuInitialised && (g_showMenu || g_settingsWarnings))
     {
         // Feed inputs to dear imgui, start new frame.
-        PollMouse();
+        if (g_showMenu)
+        {
+            PollMouse();
+        }
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-#ifdef ALIASISOLATION_ENABLE_PROFILER
+        DrawSettingsWarning();
+
+        if (g_showMenu)
         {
-            ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
-            ImGui::Begin("Alias Isolation - Profiler", NULL,
-                         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse |
-                             ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+
+#ifdef ALIASISOLATION_ENABLE_PROFILER
+            {
+                ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Alias Isolation - Profiler", NULL,
+                             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse |
+                                 ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
 #ifdef ALIASISOLATION_NO_SMAA_JITTER_ADD
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No SMAA jitter calc.");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No SMAA jitter calc.");
 #endif
 #ifdef ALIASISOLATION_NO_JITTER_REMOVE
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No jitter removal");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No jitter removal");
 #endif
 #ifdef ALIASISOLATION_NO_JITTER_ADD
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No jitter calculation");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No jitter calculation");
 #endif
 #ifdef ALIASISOLATION_NO_RGBM_VS
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No RGBM vertex shader");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No RGBM vertex shader");
 #endif
 #ifdef ALIASISOLATION_NO_SMAA_VS
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No SMAA vertex shader");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No SMAA vertex shader");
 #endif
 #ifdef ALIASISOLATION_NO_VS_OVERRIDES
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No vertex shader overrides");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No vertex shader overrides");
 #endif
 #ifdef ALIASISOLATION_NO_PS_OVERRIDES
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No pixel shader overrides");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No pixel shader overrides");
 #endif
 #ifdef ALIASISOLATION_NO_TAA_PASS
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No TAA pass");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No TAA pass");
 #endif
 #ifdef ALIASISOLATION_NO_CA_PASS
-            ImGui::TextColored(ImVec4(255, 0, 0, 1), "No CA pass");
+                ImGui::TextColored(ImVec4(255, 0, 0, 1), "No CA pass");
 #endif
-            if (!g_shaderHooksEnabled)
-            {
-                ImGui::TextColored(ImVec4(255, 0, 0, 1), "Hooks disabled");
+                if (!g_shaderHooksEnabled)
+                {
+                    ImGui::TextColored(ImVec4(255, 0, 0, 1), "Hooks disabled");
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(255, 170, 0, 1), g_profilerStats.c_str());
+                }
+                ImGui::End();
             }
-            else
-            {
-                ImGui::TextColored(ImVec4(255, 170, 0, 1), g_profilerStats.c_str());
-            }
-            ImGui::End();
-        }
 #endif // ALIASISOLATION_ENABLE_PROFILER
 
-        static bool aliasIsolation_menu_showAboutWindow = false;
+            static bool aliasIsolation_menu_showAboutWindow = false;
 
-        if (aliasIsolation_menu_showAboutWindow)
-        {
-            if (ImGui::Begin("Alias Isolation - About", &aliasIsolation_menu_showAboutWindow,
-                             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+            if (aliasIsolation_menu_showAboutWindow)
             {
-                ImGui::TextColored(ImVec4(255, 170, 0, 1), "%s - Built on %s at %s", g_modVersion.c_str(), __DATE__,
-                                   __TIME__);
-                ImGui::Text("Dear ImGui %s", ImGui::GetVersion());
-                ImGui::Separator();
-                ImGui::Text("Build information:");
+                if (ImGui::Begin("Alias Isolation - About", &aliasIsolation_menu_showAboutWindow,
+                                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+                {
+                    ImGui::TextColored(ImVec4(255, 170, 0, 1), "%s - Built on %s at %s", g_modVersion.c_str(), __DATE__,
+                                       __TIME__);
+                    ImGui::Text("Dear ImGui %s", ImGui::GetVersion());
+                    ImGui::Separator();
+                    ImGui::Text("Build information:");
 #ifdef _DEBUG
-                ImGui::Text("Target: Debug");
+                    ImGui::Text("Target: Debug");
 #else
-                ImGui::Text("Target: Release");
+                    ImGui::Text("Target: Release");
 #endif
 #ifdef _WIN32
-                ImGui::Text("Architecture: x86");
+                    ImGui::Text("Architecture: x86");
 #elif _WIN64
-                ImGui::Text("Architecture: x64");
+                    ImGui::Text("Architecture: x64");
 #endif
 #ifdef __clang__
-                ImGui::Text("Compiler: Clang/LLVM");
-                ImGui::Text("Compiler Version: %s", __VERSION__);
+                    ImGui::Text("Compiler: Clang/LLVM");
+                    ImGui::Text("Compiler Version: %s", __VERSION__);
 #endif
 #if defined(_MSC_VER) && !defined(__clang__)
-                ImGui::Text("MSVC Compiler Version: %d (%d)", _MSC_VER, _MSC_FULL_VER);
-                ImGui::Text("MSVC C++ Standard: %lu", _MSVC_LANG);
+                    ImGui::Text("MSVC Compiler Version: %d (%d)", _MSC_VER, _MSC_FULL_VER);
+                    ImGui::Text("MSVC C++ Standard: %lu", _MSVC_LANG);
 #endif
-                ImGui::Separator();
-                ImGui::Text("Mod credits:");
-                ImGui::Text("Alias Isolation originally by aliasIsolation.");
-                ImGui::Text("Currently maintained by RyanJGray.");
-                ImGui::Text("Thanks for making this mod a reality, aliasIsolation - whoever you are!");
-            }
-
-            ImGui::End();
-        }
-
-        // Get the center of the screen.
-        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-        {
-            ImGui::Begin((g_modVersion + " - Settings").c_str(), NULL,
-                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_MenuBar |
-                             ImGuiWindowFlags_NoSavedSettings);
-
-            if (ImGui::BeginMenuBar())
-            {
-                if (ImGui::BeginMenu("Help"))
-                {
-                    if (ImGui::MenuItem("About"))
-                    {
-                        aliasIsolation_menu_showAboutWindow = true;
-                    }
-
-                    ImGui::EndMenu();
+                    ImGui::Separator();
+                    ImGui::Text("Mod credits:");
+                    ImGui::Text("Alias Isolation originally by aliasIsolation.");
+                    ImGui::Text("Currently maintained by RyanJGray.");
+                    ImGui::Text("Thanks for making this mod a reality, aliasIsolation - whoever you are!");
                 }
 
-                ImGui::EndMenuBar();
+                ImGui::End();
             }
 
-            ImGui::Checkbox("Sharpening", &g_settings.sharpeningEnabled);
-            if (g_settings.sharpeningEnabled)
+            // Get the center of the screen.
+            ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
             {
-                ImGui::SliderFloat("Sharpening Amount", &g_settings.sharpening, 0.0f, 1.0f, "%.2f");
+                ImGui::Begin((g_modVersion + " - Settings").c_str(), NULL,
+                             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_MenuBar |
+                                 ImGuiWindowFlags_NoSavedSettings);
+
+                if (ImGui::BeginMenuBar())
+                {
+                    if (ImGui::BeginMenu("Help"))
+                    {
+                        if (ImGui::MenuItem("About"))
+                        {
+                            aliasIsolation_menu_showAboutWindow = true;
+                        }
+
+                        ImGui::EndMenu();
+                    }
+
+                    ImGui::EndMenuBar();
+                }
+
+                ImGui::Checkbox("Sharpening", &g_settings.sharpeningEnabled);
+                if (g_settings.sharpeningEnabled)
+                {
+                    ImGui::SliderFloat("Sharpening Amount", &g_settings.sharpening, 0.0f, 1.0f, "%.2f");
+                }
+
+                ImGui::Checkbox("Chromatic Aberration", &g_settings.chromaticAberrationEnabled);
+                if (g_settings.chromaticAberrationEnabled)
+                {
+                    ImGui::SliderFloat("Chromatic Aberration Amount", &g_settings.chromaticAberration, 0.0f, 1.0f,
+                                       "%.2f");
+                }
+
+                ImGui::Checkbox("Show logo when a level loads", &g_settings.showLogo);
+
+                if (ImGui::Button("Save Settings"))
+                {
+                    saveSettings(g_settings);
+                }
+
+                ImGui::End();
             }
-
-            ImGui::Checkbox("Chromatic Aberration", &g_settings.chromaticAberrationEnabled);
-            if (g_settings.chromaticAberrationEnabled)
-            {
-                ImGui::SliderFloat("Chromatic Aberration Amount", &g_settings.chromaticAberration, 0.0f, 1.0f, "%.2f");
-            }
-
-            ImGui::Checkbox("Show logo when a level loads", &g_settings.showLogo);
-
-            if (ImGui::Button("Save Settings"))
-            {
-                saveSettings(g_settings);
-            }
-
-            ImGui::End();
         }
 
         ImGui::EndFrame();

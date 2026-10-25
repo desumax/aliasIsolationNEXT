@@ -25,6 +25,10 @@ These options must be set to the correct values for the mod to work properly.
 | Chromatic Aberration | **Disabled** |
 | Motion Blur | **Enabled** |
 
+Why: TAA needs per-pixel motion vectors, and the game only renders them when Motion Blur is on. The mod hooks the SMAA T1x passes to jitter the camera and replaces SMAA's spatial filter with its sharpening pass. It also draws its own chromatic aberration (the `chromaticAberration` setting), so the game's own would be applied twice.
+
+If Anti-Aliasing or Motion Blur is set wrong, the mod shows a reminder in the top-left corner of the screen.
+
 ## Runtime settings
 To disable the mod at runtime, hit `Ctrl+Delete`. To re-enable it, hit `Ctrl+Insert`.
 To show/hide the mod menu at runtime, hit `DELETE`. The menu takes the mouse while it is open.
@@ -43,7 +47,7 @@ Delete `aliasIsolation.asi`, `d3d11.dll` and the `mods\aliasIsolation` folder fr
 ## Known issues
 * No support for the _MotherVR_ mod.
 * RenderDoc, Windows Auto HDR, NVIDIA RTX HDR, MSI Afterburner, Rivatuner, Special K, or any other software which also uses API hooking may break the rendering. If the menu or logo is missing, try closing these first.
-* HDR output modes (Windows HDR, deep colour) are not supported yet.
+* HDR: RTX HDR and Special K HDR are expected to work; 1.3.0-fixes keeps HDR values through the mod's passes. Windows Auto HDR has been reported to cause a blur or "doubling" effect (#60).
 * Some particle effects can appear thinner or exhibit ghosting. Sparks and embers are known to be eroded.
 * Signs with text can noticeably "fade in" when the player's camera is stationary.
 * While the motion tracker is in use, the _Depth of Field_ shader seems to cause the tracker's LED highlights to appear along the edges of the screen.
