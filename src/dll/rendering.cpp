@@ -41,6 +41,29 @@ extern ShaderHandle g_sharpenPsHandle;
 
 bool g_shaderHooksEnabled = false;
 
+// Draw is also hooked with the mod off while the ReShade bridge waits for a loading screen to start DLSS 5 behind;
+// Draw_hook then only notes whether the 3D scene was drawn.
+static bool s_drawHooked = false;
+
+static void updateDrawHook()
+{
+    const bool wanted = g_shaderHooksEnabled || ReShadeBridge::isWatchingForLoadingScreen();
+    if (wanted == s_drawHooked)
+    {
+        return;
+    }
+
+    if (wanted)
+    {
+        enableMethodHook(g_d3dHooks.Draw);
+    }
+    else
+    {
+        disableMethodHook(g_d3dHooks.Draw);
+    }
+    s_drawHooked = wanted;
+}
+
 void enableShaderHooks()
 {
     ZoneScopedN(__FUNCTION__);
@@ -49,10 +72,10 @@ void enableShaderHooks()
     {
         enableMethodHook(g_d3dHooks.PSSetShader);
         enableMethodHook(g_d3dHooks.VSSetShader);
-        enableMethodHook(g_d3dHooks.Draw);
 
         taaEnableApiHooks();
         g_shaderHooksEnabled = true;
+        updateDrawHook();
     }
 }
 
@@ -64,11 +87,11 @@ void disableShaderHooks()
     {
         disableMethodHook(g_d3dHooks.PSSetShader);
         disableMethodHook(g_d3dHooks.VSSetShader);
-        disableMethodHook(g_d3dHooks.Draw);
 
         taaDisableApiHooks();
 
         g_shaderHooksEnabled = false;
+        updateDrawHook();
     }
 }
 
@@ -188,6 +211,17 @@ HRESULT WINAPI Draw_hook(ID3D11DeviceContext *context, UINT VertexCount, UINT St
     CComPtr<ID3D11PixelShader> currentPs = nullptr;
     context->VSGetShader(&currentVs.p, nullptr, nullptr);
     context->PSGetShader(&currentPs.p, nullptr, nullptr);
+
+    // With the mod off, Draw is only hooked to watch for the 3D scene (see updateDrawHook).
+    if (!g_shaderHooksEnabled)
+    {
+        if (isScenePassDraw(currentVs, currentPs))
+        {
+            g_frameConstants.scenePassThisFrame = true;
+        }
+        origDrawFn();
+        return result;
+    }
 
     if (currentPs == g_alienResources.cameraMotionPs && g_alienResources.cameraMotionPs != nullptr)
     {
@@ -350,6 +384,7 @@ HRESULT WINAPI Present_hook(IDXGISwapChain *swapChain, UINT SyncInterval, UINT F
     TracyD3D11Collect(g_tracyD3D11Ctx);
 
     applyRequestedShaderHooks();
+    updateDrawHook();
 
     return ret;
 }
@@ -484,6 +519,7 @@ void unhookRendering()
 {
     ShaderRegistry::stopCompilerThread();
     disableShaderHooks();
+    disableMethodHook(g_d3dHooks.Draw);
     MH_DisableHook(g_d3dHooks.D3D11CreateDeviceAndSwapChain);
     disableMethodHook(g_d3dHooks.CreatePixelShader);
     disableMethodHook(g_d3dHooks.CreateVertexShader);

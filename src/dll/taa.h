@@ -7,6 +7,9 @@ struct ID3D11DeviceContext;
 
 bool taaOnDraw(ID3D11DeviceContext* context, ID3D11VertexShader* currentVs, ID3D11PixelShader* currentPs);
 
+// True for the game's draws that TAA runs before: the DoF encode, or the RGBM encode of the 3D scene.
+bool isScenePassDraw(ID3D11VertexShader* currentVs, ID3D11PixelShader* currentPs);
+
 
 void taaHookApi(ID3D11DeviceContext* immediateContext);
 

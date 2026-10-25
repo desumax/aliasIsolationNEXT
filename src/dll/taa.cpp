@@ -205,15 +205,25 @@ static void insertRendering(ID3D11DeviceContext *const context, const std::funct
 
 //const char *const s_taaString = "Temporal Anti-Aliasing";
 
+// A shader the game hasn't created yet is null, so a draw without a pixel shader must not match it.
+bool isScenePassDraw(ID3D11VertexShader *currentVs, ID3D11PixelShader *currentPs)
+{
+    if (!currentPs)
+    {
+        return false;
+    }
+    return g_alienResources.dofEncodePs == currentPs ||
+           (g_alienResources.rgbmEncodeVs == currentVs && g_alienResources.rgbmEncodePs == currentPs);
+}
+
 bool taaOnDraw(ID3D11DeviceContext *context, ID3D11VertexShader *currentVs, ID3D11PixelShader *currentPs)
 {
     ZoneScopedN(__FUNCTION__);
 
 #ifndef ALIASISOLATION_NO_TAA_PASS
     // Run TAA before the DoF encode if it's present in the frame; otherwise run it before the RGBM encode
-    bool shouldRunTaa = g_alienResources.dofEncodePs == currentPs ||
-                        (!g_frameConstants.taaRanThisFrame && g_alienResources.rgbmEncodeVs == currentVs &&
-                         g_alienResources.rgbmEncodePs == currentPs);
+    const bool shouldRunTaa = isScenePassDraw(currentVs, currentPs) &&
+                              (g_alienResources.dofEncodePs == currentPs || !g_frameConstants.taaRanThisFrame);
 
     if (shouldRunTaa)
     {

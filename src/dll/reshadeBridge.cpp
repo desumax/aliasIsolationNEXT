@@ -68,6 +68,12 @@ bool g_homePage = false;
 bool g_homePageSynced = false;
 bool g_homeTechniqueEnabled = true;
 bool g_homeSkipIntros = false;
+// The shader hooks' state from the game's Present, to show Ctrl+Delete / Ctrl+Insert in Home.
+bool g_hooksEnabled = true;
+bool g_homeHooksEnabled = true;
+// Frames until settings.txt is written, so dragging a slider doesn't write it every frame.
+unsigned g_framesUntilSettingsSave = 0;
+constexpr unsigned s_settingsSaveDelay = 30;
 
 bool getBool(reshade::api::effect_runtime *runtime, const char *name, bool fallback)
 {
@@ -147,6 +153,7 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
             runtime->save_current_preset();
         }
         g_homeTechniqueEnabled = techniqueEnabled;
+        g_homeHooksEnabled = g_hooksEnabled;
         requestShaderHooks(techniqueEnabled);
         return;
     }
@@ -156,6 +163,14 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
         g_homeTechniqueEnabled = techniqueEnabled;
         requestShaderHooks(techniqueEnabled);
     }
+    else if (g_hooksEnabled != g_homeHooksEnabled && g_hooksEnabled != techniqueEnabled)
+    {
+        // Switched with Ctrl+Delete / Ctrl+Insert: show it in Home, and keep it for the next launch and reload.
+        runtime->set_technique_state(technique, g_hooksEnabled);
+        runtime->save_current_preset();
+        g_homeTechniqueEnabled = g_hooksEnabled;
+    }
+    g_homeHooksEnabled = g_hooksEnabled;
 
     Settings values = g_settings;
     values.sharpeningEnabled = getBool(runtime, "SharpeningEnabled", values.sharpeningEnabled);
@@ -167,6 +182,10 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
     if (!sameSettings(values, g_settings))
     {
         g_settings = values;
+        g_framesUntilSettingsSave = s_settingsSaveDelay;
+    }
+    else if (g_framesUntilSettingsSave > 0 && --g_framesUntilSettingsSave == 0)
+    {
         saveSettings(g_settings);
     }
 
@@ -192,15 +211,14 @@ void syncHomePage(reshade::api::effect_runtime *runtime)
 //
 // DLSS5-Feeder starts its helper and NVIDIA's runtime when its technique first runs, and the first evaluations stall
 // the game for a second or more. Starting it behind a loading screen hides that. A loading screen shows up here as
-// the 3D scene pass stopping after it has run for a while. If none comes (the first load was missed, or the mod is
-// off and there is no scene pass to watch) the feed starts anyway after a fallback time.
+// the 3D scene pass stopping after it has run for a while (with the mod off, the game's Present still watches for it).
+// If none comes, for example because the first load was missed, the feed starts anyway after 30 seconds in 3D.
 
 constexpr const char *s_feedEffect = "DLSS5_Feed.fx";
 constexpr const char *s_feedTechnique = "DLSS5_Feed";
-constexpr unsigned s_minSceneFrames = 120;         // 3D frames before a pause can count as a loading screen
-constexpr unsigned s_loadingFrames = 30;           // Frames without the 3D scene that mean a loading screen
-constexpr unsigned s_fallbackSceneFrames = 1800;   // 3D frames in a row after which the feed starts anyway
-constexpr unsigned s_fallbackHooksOffFrames = 600; // Frames with the mod off after which the feed starts anyway
+constexpr unsigned s_minSceneFrames = 120;       // 3D frames before a pause can count as a loading screen
+constexpr unsigned s_loadingFrames = 30;         // Frames without the 3D scene that mean a loading screen
+constexpr unsigned s_fallbackSceneFrames = 1800; // 3D frames in a row after which the feed starts anyway
 
 enum class FeedHold
 {
@@ -211,7 +229,6 @@ enum class FeedHold
 FeedHold g_feedHold = FeedHold::Waiting;
 unsigned g_sceneFrames = 0;
 unsigned g_noSceneFrames = 0;
-unsigned g_hooksOffFrames = 0;
 unsigned g_longestSceneRun = 0;
 const char *g_releaseReason = nullptr; // Set from the game's Present, applied at ReShade's next present
 
@@ -277,9 +294,26 @@ void beginFeedHold(reshade::api::effect_runtime *runtime)
     runtime->set_technique_state(technique, false);
     setFeedHoldMarker(true);
     g_feedHold = FeedHold::Holding;
-    g_sceneFrames = g_noSceneFrames = g_hooksOffFrames = g_longestSceneRun = 0;
+    g_sceneFrames = g_noSceneFrames = g_longestSceneRun = 0;
     g_releaseReason = nullptr;
     logInfo("DLSS 5 Feed is held off until the first loading screen.");
+}
+
+// Ends the hold. With start false, DLSS 5 stays off, as the player switched it off during the hold.
+void endFeedHold(reshade::api::effect_runtime *runtime, reshade::api::effect_technique technique, bool start,
+                 const std::string &reason)
+{
+    runtime->set_technique_state(technique, start);
+    runtime->save_current_preset();
+    setFeedHoldMarker(false);
+    g_feedHold = FeedHold::Released;
+    g_releaseReason = nullptr;
+    logInfo(std::string(start ? "DLSS 5 Feed started: " : "DLSS 5 Feed left off: ") + reason + ".");
+}
+
+bool isFeedTechnique(const std::string &effect, const std::string &name)
+{
+    return effect == s_feedEffect && name == s_feedTechnique;
 }
 
 void updateFeedHold(reshade::api::effect_runtime *runtime)
@@ -305,16 +339,10 @@ void updateFeedHold(reshade::api::effect_runtime *runtime)
     {
         g_releaseReason = "the option was turned off";
     }
-    if (g_releaseReason == nullptr)
+    if (g_releaseReason != nullptr)
     {
-        return;
+        endFeedHold(runtime, technique, true, g_releaseReason);
     }
-
-    runtime->set_technique_state(technique, true);
-    runtime->save_current_preset();
-    setFeedHoldMarker(false);
-    g_feedHold = FeedHold::Released;
-    logInfo(std::string("DLSS 5 Feed started: ") + g_releaseReason + ".");
 }
 
 bool isHiddenTechnique(reshade::api::effect_runtime *runtime, reshade::api::effect_technique technique,
@@ -378,10 +406,18 @@ void onReShadePresent(reshade::api::effect_runtime *runtime)
         {
             const reshade::api::effect_technique technique =
                 runtime->find_technique(pending.effect.c_str(), pending.name.c_str());
-            if (technique != 0)
+            if (technique == 0)
             {
-                runtime->set_technique_state(technique, pending.enabled);
+                continue;
             }
+            // The menu shows a held feed as on. Switching it there ends the hold: on starts DLSS 5 now, off keeps it
+            // off instead of starting it at the loading screen.
+            if (g_feedHold == FeedHold::Holding && isFeedTechnique(pending.effect, pending.name))
+            {
+                endFeedHold(runtime, technique, pending.enabled, "switched in the Alias Isolation menu");
+                continue;
+            }
+            runtime->set_technique_state(technique, pending.enabled);
         }
         g_pendingTechniques.clear();
         // Keep the change across launches, the same as toggling it in ReShade's own overlay.
@@ -409,11 +445,25 @@ void onReShadeReloadedEffects(reshade::api::effect_runtime *runtime)
     g_homePageSynced = false;
     // As early as possible: DLSS5-Feeder starts on the first frame its technique runs.
     beginFeedHold(runtime);
+    // A reload sets the switches from the preset again, which would start a held feed as if it was switched on.
+    if (g_feedHold == FeedHold::Holding)
+    {
+        const reshade::api::effect_technique technique = runtime->find_technique(s_feedEffect, s_feedTechnique);
+        if (technique != 0)
+        {
+            runtime->set_technique_state(technique, false);
+        }
+    }
 }
 
 void onDestroyEffectRuntime(reshade::api::effect_runtime *)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_framesUntilSettingsSave > 0)
+    {
+        g_framesUntilSettingsSave = 0;
+        saveSettings(g_settings);
+    }
     g_runtimeSeen = false;
     g_techniques.clear();
     g_homePage = false;
@@ -461,16 +511,9 @@ void update()
 void onGameFrame(bool scenePass, bool shaderHooksEnabled)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_hooksEnabled = shaderHooksEnabled;
     if (g_registration != Registration::Registered || g_feedHold != FeedHold::Holding || g_releaseReason)
     {
-        return;
-    }
-
-    // With the mod off there is no scene pass to watch.
-    g_hooksOffFrames = shaderHooksEnabled ? 0 : g_hooksOffFrames + 1;
-    if (g_hooksOffFrames >= s_fallbackHooksOffFrames)
-    {
-        g_releaseReason = "Alias Isolation is off, so loading screens can't be detected";
         return;
     }
 
@@ -498,6 +541,12 @@ void onGameFrame(bool scenePass, bool shaderHooksEnabled)
     {
         g_releaseReason = "loading screen";
     }
+}
+
+bool isWatchingForLoadingScreen()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_registration == Registration::Registered && g_feedHold == FeedHold::Holding && !g_releaseReason;
 }
 
 bool isAvailable()
@@ -528,9 +577,15 @@ std::vector<Technique> getTechniques()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     std::vector<Technique> techniques = g_techniques;
-    // Show pending changes straight away instead of flickering back for a frame.
     for (Technique &technique : techniques)
     {
+        // A held feed is wanted, so it shows as on; switching it off here keeps it off.
+        if (g_feedHold == FeedHold::Holding && isFeedTechnique(technique.effect, technique.name))
+        {
+            technique.enabled = true;
+            technique.label += " (starts at the first loading screen)";
+        }
+        // Show pending changes straight away instead of flickering back for a frame.
         for (const PendingTechnique &pending : g_pendingTechniques)
         {
             if (pending.effect == technique.effect && pending.name == technique.name)

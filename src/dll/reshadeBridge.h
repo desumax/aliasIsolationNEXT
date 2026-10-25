@@ -22,6 +22,10 @@ void update();
 // launch, this watches for the first loading screen (the 3D scene pass stopping) to start it behind.
 void onGameFrame(bool scenePass, bool shaderHooksEnabled);
 
+// True while the hold waits for a loading screen. The game's Draw then stays hooked with the mod off, only to see
+// whether the 3D scene was drawn.
+bool isWatchingForLoadingScreen();
+
 bool isAvailable();
 
 // True when ReShade has loaded AliasIsolation.fx: the mod's switch and settings are then in ReShade's Home tab, and

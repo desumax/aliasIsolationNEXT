@@ -41,7 +41,9 @@ Settings are saved to `mods\aliasIsolation\settings.txt`, which is created with 
 | Key | Default | Notes |
 | --- | --- | --- |
 | `sharpening` | `0.3` | 0 to 1 |
+| `sharpeningEnabled` | `1` | Set to `0` to turn sharpening off and keep the amount |
 | `chromaticAberration` | `0.5` | 0 to 1 |
+| `chromaticAberrationEnabled` | `1` | Set to `0` to turn chromatic aberration off and keep the amount |
 | `showLogo` | `1` | Set to `0` to hide the logo shown when a level loads |
 
 ## ReShade and intro videos

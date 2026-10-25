@@ -24,6 +24,8 @@ bool loadSettings(Settings* settingsOut)
 		return false;
 	}
 
+	bool sharpeningSwitchRead = false;
+	bool chromaticAberrationSwitchRead = false;
 	char line[256];
 	while (fgets(line, sizeof(line), f)) {
 		char key[64];
@@ -34,16 +36,35 @@ bool loadSettings(Settings* settingsOut)
 
 		if (strcmp(key, "sharpening") == 0) {
 			settingsOut->sharpening = value;
+		} else if (strcmp(key, "sharpeningEnabled") == 0) {
+			settingsOut->sharpeningEnabled = value != 0.0f;
+			sharpeningSwitchRead = true;
 		} else if (strcmp(key, "chromaticAberration") == 0) {
 			settingsOut->chromaticAberration = value;
+		} else if (strcmp(key, "chromaticAberrationEnabled") == 0) {
+			settingsOut->chromaticAberrationEnabled = value != 0.0f;
+			chromaticAberrationSwitchRead = true;
 		} else if (strcmp(key, "showLogo") == 0) {
 			settingsOut->showLogo = value != 0.0f;
 		}
 	}
 	fclose(f);
 
-	settingsOut->sharpeningEnabled = (settingsOut->sharpening > 0.0f);
-	settingsOut->chromaticAberrationEnabled = (settingsOut->chromaticAberration > 0.0f);
+	// Older files have no switches, and an amount of 0 meant off. Keep the default amount then, so switching the
+	// effect back on doesn't give an amount of 0.
+	const Settings defaults;
+	if (!sharpeningSwitchRead) {
+		settingsOut->sharpeningEnabled = (settingsOut->sharpening > 0.0f);
+		if (!settingsOut->sharpeningEnabled) {
+			settingsOut->sharpening = defaults.sharpening;
+		}
+	}
+	if (!chromaticAberrationSwitchRead) {
+		settingsOut->chromaticAberrationEnabled = (settingsOut->chromaticAberration > 0.0f);
+		if (!settingsOut->chromaticAberrationEnabled) {
+			settingsOut->chromaticAberration = defaults.chromaticAberration;
+		}
+	}
 
 	return true;
 }
@@ -64,10 +85,11 @@ bool saveSettings(const Settings& settings)
 		return false;
 	}
 
-	const float sharpening = settings.sharpeningEnabled ? settings.sharpening : 0.0f;
-	const float chromaticAberration = settings.chromaticAberrationEnabled ? settings.chromaticAberration : 0.0f;
-	const bool ok = fprintf_s(f, "sharpening = %f\n", sharpening) >= 0 &&
-		fprintf_s(f, "chromaticAberration = %f\n", chromaticAberration) >= 0 &&
+	// The switches are saved apart from the amounts, so turning an effect off keeps its amount for later.
+	const bool ok = fprintf_s(f, "sharpening = %f\n", settings.sharpening) >= 0 &&
+		fprintf_s(f, "sharpeningEnabled = %d\n", settings.sharpeningEnabled ? 1 : 0) >= 0 &&
+		fprintf_s(f, "chromaticAberration = %f\n", settings.chromaticAberration) >= 0 &&
+		fprintf_s(f, "chromaticAberrationEnabled = %d\n", settings.chromaticAberrationEnabled ? 1 : 0) >= 0 &&
 		fprintf_s(f, "showLogo = %d\n", settings.showLogo ? 1 : 0) >= 0;
 
 	return fclose(f) == 0 && ok;

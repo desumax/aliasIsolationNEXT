@@ -96,6 +96,7 @@ void modifySharpenPass(ID3D11DeviceContext *const context)
     static CComPtr<ID3D11ShaderResourceView> logoSrv;
     static ID3D11Buffer *cb;
     static bool resourcesCreated = false;
+    static bool logoLoadTried = false;
 
     struct Constants
     {
@@ -118,40 +119,41 @@ void modifySharpenPass(ID3D11DeviceContext *const context)
     if (!resourcesCreated)
     {
         resourcesCreated = true;
-
-        // With the logo turned off it is never loaded, so players don't need to delete the png (#72, #67).
-        if (g_settings.showLogo)
-        {
-            const std::string logoPath = getDataFilePath("textures\\aliasIsolationLogo.png", false);
-            int x, y, n;
-            unsigned char *data = stbi_load(logoPath.c_str(), &x, &y, &n, 4);
-            if (data && 4 == n)
-            {
-                D3D11_TEXTURE2D_DESC texDesc;
-                ZeroMemory(&texDesc, sizeof(texDesc));
-                texDesc.Width = x;
-                texDesc.Height = y;
-                texDesc.MipLevels = 1;
-                texDesc.ArraySize = 1;
-                texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                texDesc.SampleDesc.Count = 1;
-                texDesc.SampleDesc.Quality = 0;
-                texDesc.Usage = D3D11_USAGE_IMMUTABLE;
-                texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-                D3D11_SUBRESOURCE_DATA sub;
-                ZeroMemory(&sub, sizeof(sub));
-                sub.pSysMem = data;
-                sub.SysMemPitch = x * n;
-                sub.SysMemSlicePitch = x * y * n;
-
-                DX_CHECK(g_device->CreateTexture2D(&texDesc, &sub, &logoTex));
-                logoSrv = srvFromTex(logoTex);
-            }
-            stbi_image_free(data);
-        }
-
         cb = createConstantBuffer(sizeof(constants));
+    }
+
+    // With the logo turned off it is never loaded, so players don't need to delete the png (#72, #67). It is loaded
+    // the first time the option is on, which can also be after it is switched on in the menu or Home.
+    if (g_settings.showLogo && !logoLoadTried)
+    {
+        logoLoadTried = true;
+        const std::string logoPath = getDataFilePath("textures\\aliasIsolationLogo.png", false);
+        int x, y, n;
+        unsigned char *data = stbi_load(logoPath.c_str(), &x, &y, &n, 4);
+        if (data && 4 == n)
+        {
+            D3D11_TEXTURE2D_DESC texDesc;
+            ZeroMemory(&texDesc, sizeof(texDesc));
+            texDesc.Width = x;
+            texDesc.Height = y;
+            texDesc.MipLevels = 1;
+            texDesc.ArraySize = 1;
+            texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            texDesc.SampleDesc.Count = 1;
+            texDesc.SampleDesc.Quality = 0;
+            texDesc.Usage = D3D11_USAGE_IMMUTABLE;
+            texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+            D3D11_SUBRESOURCE_DATA sub;
+            ZeroMemory(&sub, sizeof(sub));
+            sub.pSysMem = data;
+            sub.SysMemPitch = x * n;
+            sub.SysMemSlicePitch = x * y * n;
+
+            DX_CHECK(g_device->CreateTexture2D(&texDesc, &sub, &logoTex));
+            logoSrv = srvFromTex(logoTex);
+        }
+        stbi_image_free(data);
     }
 
     // Update constants
@@ -264,8 +266,6 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
             // ProfileBlock profile("Chromatic Aberration");
             context->Draw(3, 0);
 
-            aliasIsolation_hookableOverlayRender(g_device, context);
-
             // FrameMarkEnd(s_caString);
         }
         else
@@ -275,6 +275,9 @@ bool caOnDraw(ID3D11DeviceContext *context, ID3D11PixelShader *currentPs, std::f
             // Draw the current frame without CA.
             origDrawFn();
         }
+
+        // Overlays hooked here draw on the finished frame either way.
+        aliasIsolation_hookableOverlayRender(g_device, context);
 
         return true;
     }

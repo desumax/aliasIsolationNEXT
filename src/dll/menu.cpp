@@ -334,8 +334,7 @@ static void DrawIntroVideosSection()
     if (state == IntroVideos::State::Unknown)
     {
         ImGui::TextDisabled("Intro videos: files missing or partly moved.");
-        ImGui::TextDisabled("The installer script can restore them.");
-        return;
+        ImGui::TextDisabled("Switching this finishes the move. The installer script can restore missing files.");
     }
 
     bool skipped = state == IntroVideos::State::Skipped;

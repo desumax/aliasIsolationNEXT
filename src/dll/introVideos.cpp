@@ -58,24 +58,25 @@ State getState()
 
 bool setSkipped(bool skipped)
 {
-    if (getState() == (skipped ? State::Skipped : State::Playing))
+    const State wanted = skipped ? State::Skipped : State::Playing;
+    if (getState() == wanted)
     {
         return true;
-    }
-    if (getState() == State::Unknown)
-    {
-        return false;
     }
 
     const std::wstring from = skipped ? moviesDirectory() : backupDirectory();
     const std::wstring to = skipped ? backupDirectory() : moviesDirectory();
     CreateDirectoryW(to.c_str(), nullptr);
 
-    bool ok = true;
+    // Only the videos still on the other side are moved, which also finishes a move that stopped part way, for
+    // example because a file was locked.
     for (const wchar_t *video : s_videos)
     {
-        ok &= MoveFileExW((from + video).c_str(), (to + video).c_str(), MOVEFILE_COPY_ALLOWED) != FALSE;
+        if (fileExists(from + video) && !fileExists(to + video))
+        {
+            MoveFileExW((from + video).c_str(), (to + video).c_str(), MOVEFILE_COPY_ALLOWED);
+        }
     }
-    return ok;
+    return getState() == wanted;
 }
 } // namespace IntroVideos
