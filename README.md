@@ -6,7 +6,7 @@ The mod works by injecting itself into the executable, and hijacking D3D11 calls
 Suggestions for new features or pull requests for this mod are welcome!
 
 ## Installation instructions
-**Alias Isolation NEXT:** extract `AliasIsolationNEXT-<version>.zip` anywhere and double-click `Install.bat`. The menu installs, updates or removes the mod, skips or restores the intro videos, and can install the optional DLSS 5 + LumeniteFX pack through [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder)'s own installer. To install by hand, copy the contents of the `files` folder (without `legacy`) next to `AI.exe`.
+**Alias Isolation NEXT:** close the game, extract `AliasIsolationNEXT-<version>.zip` anywhere and double-click `Install.bat`. The game is found through Steam, Epic or GOG; if it isn't, paste its folder or pick it in a window. Press Enter to install everything. That covers the mod, skipping the intro videos and the optional DLSS 5 + LumeniteFX pack through [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder)'s own installer, which asks first. The menu also has each step on its own. To install by hand, copy the contents of the `files` folder (without `legacy`) next to `AI.exe`.
 
 The original 1.2.0 archive layout:
 Extract the following files from the `AliasIsolation-<version>.7z` archive, obtainable via the releases page, to the folder where _Alien: Isolation_ is installed (you should be in a folder that has a file called `AI.exe`):
@@ -45,7 +45,11 @@ Settings are saved to `mods\aliasIsolation\settings.txt`, which is created with 
 | `showLogo` | `1` | Set to `0` to hide the logo shown when a level loads |
 
 ## ReShade and intro videos
-With ReShade 6 (add-on support) loaded, the mod menu gets a **ReShade** section with switches for ReShade's effects as a whole and for each technique, such as DLSS 5 Feed and LUMENITE. Changes are saved in ReShade's preset. **Skip intro videos** moves the three logo videos from `DATA\UI\MOVIES` to `_intro-videos-backup` and takes effect from the next launch.
+With ReShade 6 (add-on support), the installer adds **Alias Isolation** to ReShade's Home tab (`reshade-shaders\Shaders\AliasIsolation.fx`). Its checkbox switches the mod on and off, next to DLSS 5 Feed and LUMENITE. Its options, including **Skip intro videos**, are listed underneath. Keep the *Alias Isolation* add-on enabled in the Add-ons tab: that is what connects the Home entry to the mod, and like every add-on it only loads at game start. Without `AliasIsolation.fx`, the mod menu (Delete) has a **ReShade** section with the same switches instead.
+
+**Skip intro videos** moves the three logo videos from `DATA\UI\MOVIES` to `_intro-videos-backup` and takes effect from the next launch.
+
+**HDR and the DLSS 5 pack:** Alien: Isolation always outputs SDR, and RTX HDR or Auto HDR convert it afterwards. The installer therefore reads each monitor's Windows HDR state and sets the feeder and OptiScaler to SDR input, unless Special K or RenoDX in the game folder makes the game's output HDR. Run option 9 again after changing that setup.
 
 ## Uninstalling
 `Install.bat` > *Remove Alias Isolation* does this for you, or by hand:
@@ -58,7 +62,7 @@ Delete `aliasIsolation.asi`, `d3d11.dll` and the `mods\aliasIsolation` folder fr
 * Some particle effects can appear thinner or exhibit ghosting. Sparks and embers are known to be eroded.
 * Signs with text can noticeably "fade in" when the player's camera is stationary.
 * While the motion tracker is in use, the _Depth of Field_ shader seems to cause the tracker's LED highlights to appear along the edges of the screen.
-* The _Epic Games Store_ release of the game may crash with a fatal error at `aliasIsolation_hookableOverlayRender`.
+* The _Epic Games Store_ release of the game may crash with a fatal error at `aliasIsolation_hookableOverlayRender`. That name is probably just the closest exported symbol. The crash message now also lists `module+offset` per frame, so please include it in reports.
 
 ## Building from source
 1. Clone this repo using Git (with `--recursive` for the submodules).

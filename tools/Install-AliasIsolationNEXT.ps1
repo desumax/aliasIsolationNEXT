@@ -8,7 +8,7 @@
 
         powershell -ExecutionPolicy Bypass -File .\Install-AliasIsolationNEXT.ps1
 
-    Or pass -Action for a single step. The game is found through Steam; -GameDir overrides that.
+    Or pass -Action for a single step. The game is found through Steam, Epic or GOG; -GameDir overrides that.
 
     Every file this script puts in the game folder is listed in _aliasisolation-files.txt there, which is what
     -Action Uninstall removes. The DLSS 5 pack is not bundled: the script downloads DLSS5-Feeder's own installer
@@ -16,14 +16,19 @@
     original sources under their own licences.
 
 .PARAMETER Action
-    Install, Uninstall, SkipIntros, RestoreIntros, InstallDlss5, DisableDlss5, EnableDlss5 or Status.
+    InstallAll (Alias Isolation, skip the intro videos, then the DLSS 5 pack), Install, Uninstall, HomePage, DetectHdr,
+    SkipIntros, RestoreIntros, InstallDlss5, DisableDlss5, EnableDlss5 or Status.
+
+.PARAMETER GameDir
+    The folder with AI.exe. Without it the game is looked up in Steam, the Epic Games Launcher and GOG, and if it
+    isn't found there you can paste the folder or pick it in a window.
 
 .PARAMETER Yes
     Don't ask for confirmation.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Menu', 'Install', 'Uninstall', 'SkipIntros', 'RestoreIntros', 'InstallDlss5', 'DisableDlss5',
+    [ValidateSet('Menu', 'InstallAll', 'Install', 'Uninstall', 'HomePage', 'DetectHdr', 'SkipIntros', 'RestoreIntros', 'InstallDlss5', 'DisableDlss5',
         'EnableDlss5', 'Status')]
     [string]$Action = 'Menu',
     [string]$GameDir,
@@ -75,20 +80,83 @@ function Get-SteamLibraries {
     return $libraries | Select-Object -Unique
 }
 
+function Get-EpicInstalls {
+    # The Epic Games Launcher keeps one JSON .item manifest per installed game.
+    $manifests = Join-Path $env:ProgramData 'Epic\EpicGamesLauncher\Data\Manifests'
+    if (-not (Test-Path $manifests)) { return @() }
+    $found = @()
+    foreach ($item in Get-ChildItem $manifests -Filter '*.item' -File -ErrorAction SilentlyContinue) {
+        try {
+            $manifest = Get-Content $item.FullName -Raw | ConvertFrom-Json
+            if ($manifest.DisplayName -like '*Alien*Isolation*' -and $manifest.InstallLocation) {
+                $found += $manifest.InstallLocation
+            }
+        } catch { }
+    }
+    return $found
+}
+
+function Get-GogInstalls {
+    $found = @()
+    foreach ($key in 'HKLM:\SOFTWARE\WOW6432Node\GOG.com\Games', 'HKLM:\SOFTWARE\GOG.com\Games') {
+        foreach ($game in Get-ChildItem $key -ErrorAction SilentlyContinue) {
+            try {
+                $item = Get-ItemProperty -Path $game.PSPath -ErrorAction Stop
+                if ($item.PSObject.Properties['gameName'] -and $item.gameName -like '*Alien*Isolation*' -and
+                    $item.PSObject.Properties['path']) { $found += $item.path }
+            } catch { }
+        }
+    }
+    return $found
+}
+
+function Get-GameCandidates {
+    foreach ($library in Get-SteamLibraries) { Join-Path $library 'steamapps\common\Alien Isolation' }
+    Get-EpicInstalls
+    Get-GogInstalls
+}
+
+# Accepts the game folder or the path to AI.exe itself, with or without quotes.
+function Resolve-GameDir([string]$Path) {
+    if (-not $Path) { return $null }
+    $Path = $Path.Trim().Trim('"')
+    if ($Path -like '*.exe') { $Path = Split-Path $Path -Parent }
+    if ($Path -and (Test-Path (Join-Path $Path 'AI.exe'))) { return (Resolve-Path $Path).Path }
+    return $null
+}
+
+function Select-GameDirWindow {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = 'Select the Alien: Isolation folder (the one with AI.exe)'
+        $dialog.ShowNewFolderButton = $false
+        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
+    } catch { Write-Warn "The folder window could not be opened: $($_.Exception.Message)" }
+    return $null
+}
+
 function Find-GameDir {
     if ($GameDir) {
-        if (-not (Test-Path (Join-Path $GameDir 'AI.exe'))) { throw "AI.exe was not found in '$GameDir'." }
-        return (Resolve-Path $GameDir).Path
+        $resolved = Resolve-GameDir $GameDir
+        if (-not $resolved) { throw "AI.exe was not found in '$GameDir'." }
+        return $resolved
     }
-    foreach ($library in Get-SteamLibraries) {
-        $candidate = Join-Path $library 'steamapps\common\Alien Isolation'
-        if (Test-Path (Join-Path $candidate 'AI.exe')) { return $candidate }
+    foreach ($candidate in Get-GameCandidates) {
+        $resolved = Resolve-GameDir $candidate
+        if ($resolved) { return $resolved }
     }
-    if ($Action -ne 'Menu') { throw 'Alien: Isolation was not found through Steam. Pass -GameDir "<folder with AI.exe>".' }
-    $entered = Read-Host '  Alien: Isolation was not found through Steam. Folder that contains AI.exe'
-    $entered = $entered.Trim('"')
-    if (-not (Test-Path (Join-Path $entered 'AI.exe'))) { throw "AI.exe was not found in '$entered'." }
-    return (Resolve-Path $entered).Path
+    if ($Yes) { throw 'Alien: Isolation was not found (Steam, Epic, GOG). Pass -GameDir "<folder with AI.exe>".' }
+
+    Write-Warn 'Alien: Isolation was not found in Steam, Epic Games or GOG.'
+    while ($true) {
+        $entered = Read-Host '  Paste the folder that contains AI.exe, or press Enter to pick it in a window (Q quits)'
+        if ($entered -match '^\s*[qQ]\s*$') { exit 1 }
+        if (-not $entered.Trim()) { $entered = Select-GameDirWindow }
+        $resolved = Resolve-GameDir $entered
+        if ($resolved) { return $resolved }
+        Write-Fail "AI.exe was not found in '$entered'."
+    }
 }
 
 function Assert-GameClosed {
@@ -163,6 +231,7 @@ function Show-Status([string]$Game) {
     Write-Host "  Alias Isolation : $alias"
     Write-Host "  Intro videos    : $(Get-IntroState $Game)"
     Write-Host "  DLSS 5 pack     : $(Get-Dlss5State $Game)"
+    Write-Host "  ReShade Home tab: $(Get-HomePageState $Game)"
     Write-Host ''
 }
 
@@ -205,6 +274,7 @@ function Install-Alias([string]$Game) {
     Add-ToManifest $Game @('aliasIsolation.asi', 'd3d11.dll', 'mods\aliasIsolation')
     Write-Ok "Alias Isolation $ModVersion installed. In game: Delete opens the menu."
     Write-Step 'Video settings: Anti-Aliasing SMAA T1x, Motion Blur on, Chromatic Aberration off.'
+    Install-HomePage $Game
 }
 
 function Uninstall-Alias([string]$Game) {
@@ -221,6 +291,9 @@ function Uninstall-Alias([string]$Game) {
     $otherAsi = @(Get-ChildItem $Game -Filter '*.asi' -File -ErrorAction SilentlyContinue)
     if ((Test-AsiLoader $d3d11) -and $otherAsi.Count -eq 0) { Remove-Item $d3d11 -Force; Write-Ok 'Removed d3d11.dll (ASI loader)' }
     elseif ($otherAsi.Count -gt 0) { Write-Warn 'Kept d3d11.dll: other .asi mods still use it.' }
+
+    $homePage = Join-Path (Get-ShaderDir $Game) 'AliasIsolation.fx'
+    if (Test-Path $homePage) { Remove-Item $homePage -Force; Write-Ok 'Removed AliasIsolation.fx (ReShade Home tab page)' }
 
     Remove-Item (Join-Path $Game $ManifestName) -ErrorAction SilentlyContinue
     Write-Ok 'Alias Isolation removed. The intro videos and the DLSS 5 pack were not touched.'
@@ -296,7 +369,9 @@ function Install-Dlss5([string]$Game) {
             Write-Warn 'd3d11.dll was replaced and Alias Isolation will not load. Run -Action Install again.'
         }
     }
-    Write-Step 'In game, the Alias Isolation menu (Delete) now has switches for the ReShade effects.'
+    Set-HdrConfig $Game
+    if (Test-Path (Join-Path $Game 'aliasIsolation.asi')) { Install-HomePage $Game }
+    else { Hide-HelperTechniques (Get-ShaderDir $Game) }
 }
 
 function Set-Dlss5Enabled([string]$Game, [bool]$Enable) {
@@ -312,11 +387,260 @@ function Set-Dlss5Enabled([string]$Game, [bool]$Enable) {
     }
 }
 
+# --- ReShade Home tab --------------------------------------------------------------------------------------------
+
+# ReShade's .ini and .fx files are read and written byte for byte (Latin-1), so nothing else in them changes.
+$Latin1 = [System.Text.Encoding]::GetEncoding(28591)
+
+function Read-TextFile([string]$Path) { return [System.IO.File]::ReadAllText($Path, $Latin1) }
+function Write-TextFile([string]$Path, [string]$Text) { [System.IO.File]::WriteAllText($Path, $Text, $Latin1) }
+
+function Test-ReShadeInstalled([string]$Game) {
+    foreach ($name in 'dxgi.dll', 'dxgi.dll.off', 'd3d11.dll') { if (Test-ReShade (Join-Path $Game $name)) { return $true } }
+    return $false
+}
+
+# Returns the value of Key in [Section] (or before any section when Section is ''), or $null.
+function Get-IniValue([string]$Text, [string]$Section, [string]$Key) {
+    $current = ''
+    foreach ($line in $Text -split "`r?`n") {
+        if ($line -match '^\s*\[(.+)\]\s*$') { $current = $Matches[1]; continue }
+        if ($current -eq $Section -and $line -match "^\s*$([regex]::Escape($Key))\s*=(.*)$") { return $Matches[1].Trim() }
+    }
+    return $null
+}
+
+function Set-IniValue([string]$Text, [string]$Section, [string]$Key, [string]$Value) {
+    $nl = "`n"; if ($Text -match "`r`n") { $nl = "`r`n" }
+    $lines = [System.Collections.Generic.List[string]]@($Text -split "`r?`n")
+    $current = ''; $sectionEnd = -1; $sectionFound = ($Section -eq '')
+    if ($Section -eq '') { $sectionEnd = 0 }
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*\[(.+)\]\s*$') {
+            if ($current -eq $Section -and $sectionFound -and $Section -eq '') { break }
+            $current = $Matches[1]
+            if ($current -eq $Section) { $sectionFound = $true; $sectionEnd = $i + 1 }
+            continue
+        }
+        if ($current -ne $Section) { continue }
+        if ($lines[$i] -match "^\s*$([regex]::Escape($Key))\s*=") { $lines[$i] = "$Key=$Value"; return ($lines -join $nl) }
+        if ($lines[$i].Trim()) { $sectionEnd = $i + 1 }
+    }
+    if (-not $sectionFound) {
+        if ($lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq '') { $lines.RemoveAt($lines.Count - 1) }
+        $lines.Add("[$Section]"); $lines.Add("$Key=$Value"); $lines.Add('')
+    } else {
+        $lines.Insert($sectionEnd, "$Key=$Value")
+    }
+    return ($lines -join $nl)
+}
+
+function Get-ShaderDir([string]$Game) {
+    $dir = 'reshade-shaders\Shaders'
+    $ini = Join-Path $Game 'ReShade.ini'
+    if (Test-Path $ini) {
+        $paths = Get-IniValue (Read-TextFile $ini) 'GENERAL' 'EffectSearchPaths'
+        if ($paths) { $dir = (($paths -split ',')[0].Trim()) -replace '\\\*\*$', '' -replace '^\.\\', '' }
+    }
+    if (-not [System.IO.Path]::IsPathRooted($dir)) { $dir = Join-Path $Game $dir }
+    return $dir
+}
+
+# ReShade only leaves a technique out of the Home tab when it has the "hidden" annotation, so it is added to the
+# feeder's debug view and to DisplayDepth. The feeder's installer replaces DLSS5_Feed.fx, so this is redone after it.
+function Hide-HelperTechniques([string]$ShaderDir) {
+    foreach ($target in @(@('DLSS5_Feed.fx', 'DLSS5_Feed_Debug'), @('DisplayDepth.fx', 'DisplayDepth'))) {
+        $path = Join-Path $ShaderDir $target[0]
+        if (-not (Test-Path $path)) { continue }
+        $text = Read-TextFile $path
+        $name = [regex]::Escape($target[1])
+        if ($text -match "technique\s+$name\s*<\s*hidden\s*=") { continue }
+        $patched = [regex]::Replace($text, "(technique\s+$name\s*<)", '$1 hidden = true;')
+        if ($patched -ne $text) { Write-TextFile $path $patched; Write-Ok "Hid $($target[1]) from ReShade's Home tab." }
+    }
+}
+
+function Install-HomePage([string]$Game) {
+    if (-not (Test-ReShadeInstalled $Game)) { return }
+    Assert-GameClosed
+    $source = Join-Path $SourceDir 'reshade-shaders\Shaders\AliasIsolation.fx'
+    if (-not (Test-Path $source)) { Write-Warn "AliasIsolation.fx was not found in the release files."; return }
+
+    $shaderDir = Get-ShaderDir $Game
+    New-Item -ItemType Directory -Force $shaderDir | Out-Null
+    Copy-Item $source (Join-Path $shaderDir 'AliasIsolation.fx') -Force
+    $relative = (Join-Path $shaderDir 'AliasIsolation.fx').Substring($Game.TrimEnd('\').Length + 1)
+    Add-ToManifest $Game @($relative)
+    Hide-HelperTechniques $shaderDir
+
+    $ini = Join-Path $Game 'ReShade.ini'
+    $preset = Join-Path $Game 'ReShadePreset.ini'
+    $iniText = ''
+    if (Test-Path $ini) {
+        $iniText = Read-TextFile $ini
+        $presetPath = Get-IniValue $iniText 'GENERAL' 'PresetPath'
+        if ($presetPath) {
+            $preset = $presetPath -replace '^\.\\', ''
+            if (-not [System.IO.Path]::IsPathRooted($preset)) { $preset = Join-Path $Game $preset }
+        }
+
+        # Collapse every entry in the Add-ons tab. ReShade inverts this list for add-ons loaded from files
+        # ("Name@file"): those are collapsed when they are not listed, the built-in ones when they are.
+        $collapsed = @()
+        $current = Get-IniValue $iniText 'ADDON' 'OverlayCollapsed'
+        if ($current) { $collapsed = @($current -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+        $collapsed = @($collapsed | Where-Object { $_ -notlike '*@*' }) + @('Generic Depth', 'Effect Runtime Sync') |
+            Select-Object -Unique
+        Write-TextFile $ini (Set-IniValue $iniText 'ADDON' 'OverlayCollapsed' ($collapsed -join ','))
+    }
+
+    # The page is switched on the first time only, so a later reinstall keeps it the way the player left it.
+    $entry = 'AliasIsolation@AliasIsolation.fx'
+    $presetText = ''
+    if (Test-Path $preset) { $presetText = Read-TextFile $preset }
+    $sorting = @()
+    $value = Get-IniValue $presetText '' 'TechniqueSorting'
+    if ($value) { $sorting = @($value -split ',' | Where-Object { $_ }) }
+    if ($sorting -notcontains $entry) {
+        $techniques = @()
+        $value = Get-IniValue $presetText '' 'Techniques'
+        if ($value) { $techniques = @($value -split ',' | Where-Object { $_ }) }
+        $presetText = Set-IniValue $presetText '' 'Techniques' ((@($entry) + $techniques | Select-Object -Unique) -join ',')
+        $presetText = Set-IniValue $presetText '' 'TechniqueSorting' ((@($entry) + $sorting) -join ',')
+        Write-TextFile $preset $presetText
+    }
+    Write-Ok "Alias Isolation is in ReShade's Home tab (open ReShade with the Home key)."
+}
+
+# --- HDR detection for the DLSS 5 pack -----------------------------------------------------------------------------
+
+Add-Type -Namespace AliasIsolationNext -Name Display -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern int GetDisplayConfigBufferSizes(uint flags, out uint paths, out uint modes);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern int QueryDisplayConfig(uint flags, ref uint paths, System.IntPtr pathInfo, ref uint modes, System.IntPtr modeInfo, System.IntPtr topology);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern int DisplayConfigGetDeviceInfo(System.IntPtr packet);
+
+// One entry per active monitor: bit 0 = HDR capable, bit 1 = HDR on in Windows.
+public static int[] GetAdvancedColor() {
+    const uint QDC_ONLY_ACTIVE_PATHS = 2;
+    const int PathSize = 72, ModeSize = 64;
+    uint pathCount, modeCount;
+    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out pathCount, out modeCount) != 0) return new int[0];
+    System.IntPtr paths = System.Runtime.InteropServices.Marshal.AllocHGlobal((int)pathCount * PathSize);
+    System.IntPtr modes = System.Runtime.InteropServices.Marshal.AllocHGlobal((int)modeCount * ModeSize);
+    System.IntPtr packet = System.Runtime.InteropServices.Marshal.AllocHGlobal(32);
+    var result = new System.Collections.Generic.List<int>();
+    try {
+        if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref pathCount, paths, ref modeCount, modes, System.IntPtr.Zero) != 0) return new int[0];
+        for (int i = 0; i < pathCount; i++) {
+            System.IntPtr path = System.IntPtr.Add(paths, i * PathSize);
+            // DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO (9): header {type, size, adapter LUID, target id}, then value.
+            System.Runtime.InteropServices.Marshal.WriteInt32(packet, 0, 9);
+            System.Runtime.InteropServices.Marshal.WriteInt32(packet, 4, 32);
+            System.Runtime.InteropServices.Marshal.WriteInt32(packet, 8, System.Runtime.InteropServices.Marshal.ReadInt32(path, 20));
+            System.Runtime.InteropServices.Marshal.WriteInt32(packet, 12, System.Runtime.InteropServices.Marshal.ReadInt32(path, 24));
+            System.Runtime.InteropServices.Marshal.WriteInt32(packet, 16, System.Runtime.InteropServices.Marshal.ReadInt32(path, 28));
+            if (DisplayConfigGetDeviceInfo(packet) == 0)
+                result.Add(System.Runtime.InteropServices.Marshal.ReadInt32(packet, 20) & 3);
+        }
+    } finally {
+        System.Runtime.InteropServices.Marshal.FreeHGlobal(paths);
+        System.Runtime.InteropServices.Marshal.FreeHGlobal(modes);
+        System.Runtime.InteropServices.Marshal.FreeHGlobal(packet);
+    }
+    return result.ToArray();
+}
+'@
+
+# Something in the game folder that turns the game's SDR swapchain into a real HDR one.
+function Get-HdrUpgrader([string]$Game) {
+    foreach ($file in Get-ChildItem $Game -File -ErrorAction SilentlyContinue) {
+        if ($file.Name -like 'SpecialK*.dll' -or $file.Name -like '*renodx*') { return $file.Name }
+        if ($file.Extension -eq '.dll' -and (Get-ProductName $file.FullName) -like 'Special K*') { return $file.Name }
+    }
+    return $null
+}
+
+# Alien: Isolation only ever presents an 8-bit SDR swapchain. RTX HDR and Windows Auto HDR turn that into HDR after
+# the game, but need Windows HDR on, and that is when the feeder's and OptiScaler's "auto" can take the SDR frame for
+# HDR, so the neural pass looks like it does nothing. The values are therefore written out instead of left on auto:
+# SDR unless something in the game folder makes the swapchain itself HDR.
+function Set-HdrConfig([string]$Game) {
+    $cfg = Join-Path $Game 'dlss5-feed.cfg'
+    $opti = Join-Path $Game 'host64\OptiScaler.ini'
+    if (-not (Test-Path $cfg) -and -not (Test-Path $opti)) { return }
+    Assert-GameClosed
+
+    $monitors = @([AliasIsolationNext.Display]::GetAdvancedColor())
+    $hdrOn = @($monitors | Where-Object { $_ -band 2 }).Count -gt 0
+    $hdrCapable = @($monitors | Where-Object { $_ -band 1 }).Count -gt 0
+    $upgrader = Get-HdrUpgrader $Game
+    $gameHdr = $hdrOn -and $upgrader
+
+    if ($gameHdr) {
+        Write-Step "Windows HDR is on and $upgrader makes the game's output HDR: the DLSS 5 pack is set to HDR."
+    } elseif ($hdrOn) {
+        Write-Step 'Windows HDR is on. The game itself is SDR (RTX HDR or Auto HDR convert it afterwards), so the'
+        Write-Step 'DLSS 5 pack is set to SDR input. This is what keeps it working with RTX HDR.'
+    } elseif ($hdrCapable) {
+        Write-Step 'This monitor can do HDR but Windows HDR is off: the DLSS 5 pack is set to SDR.'
+    } else {
+        Write-Step 'No HDR monitor found: the DLSS 5 pack is set to SDR.'
+    }
+
+    if (Test-Path $cfg) {
+        $text = Read-TextFile $cfg
+        if ($gameHdr) {
+            # hdr=1 sets NGX's HDR flag; the PQ bridge stays on auto since it checks the real colour space itself.
+            $text = Set-IniValue $text '' 'hdr' '1'
+            $text = Set-IniValue $text '' 'hdr_bridge' '-1'
+        } else {
+            $text = Set-IniValue $text '' 'hdr' '0'
+            $text = Set-IniValue $text '' 'hdr_bridge' '0'
+        }
+        Write-TextFile $cfg $text
+    }
+    if (Test-Path $opti) {
+        $backup = "$opti.aliasisolation-backup"
+        if (-not (Test-Path $backup)) { Copy-Item $opti $backup }
+        $text = Read-TextFile $opti
+        if ($gameHdr) {
+            $text = Set-IniValue $text 'InitFlags' 'HDR' 'true'
+            $text = Set-IniValue $text 'HDR' 'ForceHDR' 'auto'
+            $text = Set-IniValue $text 'HDR' 'UseHDR10' 'auto'
+        } else {
+            $text = Set-IniValue $text 'InitFlags' 'HDR' 'false'
+            $text = Set-IniValue $text 'HDR' 'ForceHDR' 'false'
+            $text = Set-IniValue $text 'HDR' 'UseHDR10' 'false'
+        }
+        Write-TextFile $opti $text
+    }
+    Write-Ok 'HDR settings written to dlss5-feed.cfg and host64\OptiScaler.ini.'
+}
+
+function Get-HomePageState([string]$Game) {
+    if (-not (Test-ReShadeInstalled $Game)) { return 'No ReShade' }
+    if (Test-Path (Join-Path (Get-ShaderDir $Game) 'AliasIsolation.fx')) { return 'Installed' }
+    return 'Not installed'
+}
+
+# The DLSS 5 step asks first, and puts the Home tab page in once ReShade is there.
+function Install-Everything([string]$Game) {
+    Install-Alias $Game
+    Set-IntroVideos $Game $true
+    Install-Dlss5 $Game
+}
+
 # --- Entry point -------------------------------------------------------------------------------------------------
 
 function Invoke-Action([string]$Name, [string]$Game) {
     switch ($Name) {
+        'InstallAll' { Install-Everything $Game }
         'Install' { Install-Alias $Game }
+        'HomePage' { Install-HomePage $Game; Hide-HelperTechniques (Get-ShaderDir $Game) }
+        'DetectHdr' { Set-HdrConfig $Game }
         'Uninstall' { if (Confirm-Step 'Remove Alias Isolation from the game folder?') { Uninstall-Alias $Game } }
         'SkipIntros' { Set-IntroVideos $Game $true }
         'RestoreIntros' { Set-IntroVideos $Game $false }
@@ -338,17 +662,20 @@ if ($Action -ne 'Menu') {
 
 while ($true) {
     Show-Status $game
-    Write-Host '  1) Install or update Alias Isolation'
+    Write-Host '  Enter) Install everything: Alias Isolation, skip intro videos, DLSS 5 + LumeniteFX (asks first)'
+    Write-Host '  1) Install or update Alias Isolation only'
     Write-Host '  2) Remove Alias Isolation'
     Write-Host '  3) Skip intro videos'
     Write-Host '  4) Restore intro videos'
-    Write-Host '  5) Install DLSS 5 + LumeniteFX (runs the DLSS5-Feeder installer)'
+    Write-Host '  5) Install or update DLSS 5 + LumeniteFX (runs the DLSS5-Feeder installer)'
     Write-Host '  6) Turn the DLSS 5 pack off'
     Write-Host '  7) Turn the DLSS 5 pack on'
+    Write-Host '  8) Redo the ReShade Home tab setup (after updating ReShade or the feeder by hand)'
+    Write-Host '  9) Re-detect HDR for the DLSS 5 pack (after turning Windows HDR on or off)'
     Write-Host '  Q) Quit'
-    $choice = Read-Host '  Choice'
-    $map = @{ '1' = 'Install'; '2' = 'Uninstall'; '3' = 'SkipIntros'; '4' = 'RestoreIntros'; '5' = 'InstallDlss5'
-        '6' = 'DisableDlss5'; '7' = 'EnableDlss5' }
+    $choice = (Read-Host '  Choice').Trim()
+    $map = @{ '' = 'InstallAll'; '1' = 'Install'; '2' = 'Uninstall'; '3' = 'SkipIntros'; '4' = 'RestoreIntros'
+        '5' = 'InstallDlss5'; '6' = 'DisableDlss5'; '7' = 'EnableDlss5'; '8' = 'HomePage'; '9' = 'DetectHdr' }
     if ($choice -match '^[qQ]') { break }
     if (-not $map.ContainsKey($choice)) { continue }
     try { Invoke-Action $map[$choice] $game } catch { Write-Fail $_.Exception.Message }

@@ -505,30 +505,39 @@ void Menu::DrawMenu()
                     ImGui::EndMenuBar();
                 }
 
-                ImGui::Checkbox("Sharpening", &g_settings.sharpeningEnabled);
-                if (g_settings.sharpeningEnabled)
+                if (ReShadeBridge::hasHomePage())
                 {
-                    ImGui::SliderFloat("Sharpening Amount", &g_settings.sharpening, 0.0f, 1.0f, "%.2f");
+                    ImGui::TextUnformatted("Alias Isolation's switch and settings are in the ReShade overlay:");
+                    ImGui::TextUnformatted("Home > Alias Isolation.");
+                    ImGui::End();
                 }
-
-                ImGui::Checkbox("Chromatic Aberration", &g_settings.chromaticAberrationEnabled);
-                if (g_settings.chromaticAberrationEnabled)
+                else
                 {
-                    ImGui::SliderFloat("Chromatic Aberration Amount", &g_settings.chromaticAberration, 0.0f, 1.0f,
-                                       "%.2f");
+                    ImGui::Checkbox("Sharpening", &g_settings.sharpeningEnabled);
+                    if (g_settings.sharpeningEnabled)
+                    {
+                        ImGui::SliderFloat("Sharpening Amount", &g_settings.sharpening, 0.0f, 1.0f, "%.2f");
+                    }
+
+                    ImGui::Checkbox("Chromatic Aberration", &g_settings.chromaticAberrationEnabled);
+                    if (g_settings.chromaticAberrationEnabled)
+                    {
+                        ImGui::SliderFloat("Chromatic Aberration Amount", &g_settings.chromaticAberration, 0.0f, 1.0f,
+                                           "%.2f");
+                    }
+
+                    ImGui::Checkbox("Show logo when a level loads", &g_settings.showLogo);
+
+                    if (ImGui::Button("Save Settings"))
+                    {
+                        saveSettings(g_settings);
+                    }
+
+                    DrawReShadeSection();
+                    DrawIntroVideosSection();
+
+                    ImGui::End();
                 }
-
-                ImGui::Checkbox("Show logo when a level loads", &g_settings.showLogo);
-
-                if (ImGui::Button("Save Settings"))
-                {
-                    saveSettings(g_settings);
-                }
-
-                DrawReShadeSection();
-                DrawIntroVideosSection();
-
-                ImGui::End();
             }
         }
 

@@ -219,6 +219,18 @@ void show_stack(std::ostream &os, HANDLE hThread, CONTEXT& c) {
 		}
 
 		if (s.AddrPC.Offset != 0) {
+			// Without a PDB the symbol is only the nearest export (e.g. aliasIsolation_hookableOverlayRender), so also
+			// print module+offset, which can be looked up against the matching build.
+			HMODULE module = NULL;
+			char module_path[MAX_PATH] = "?";
+			if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				(LPCSTR)(DWORD_PTR)s.AddrPC.Offset, &module)) {
+				GetModuleFileNameA(module, module_path, sizeof(module_path));
+			}
+			const char *module_name = strrchr(module_path, '\\');
+			module_name = module_name ? module_name + 1 : module_path;
+			os << module_name << "+0x" << std::hex << (s.AddrPC.Offset - (DWORD64)(DWORD_PTR)module) << std::dec << " ";
+
 			os << symbol(process, s.AddrPC.Offset).undecorated_name();
 
 			if (SymGetLineFromAddr64( process, s.AddrPC.Offset, &offset_from_symbol, &line ) ) 

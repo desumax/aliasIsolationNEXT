@@ -19,6 +19,10 @@ struct Technique
 void update();
 
 bool isAvailable();
+
+// True when ReShade has loaded AliasIsolation.fx: the mod's switch and settings are then in ReShade's Home tab, and
+// the bridge keeps them in sync with g_settings, the shader hooks and the intro videos.
+bool hasHomePage();
 bool getEffectsEnabled();
 void setEffectsEnabled(bool enabled);
 

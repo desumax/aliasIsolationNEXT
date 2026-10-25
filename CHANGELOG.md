@@ -13,8 +13,11 @@
 - TAA silently turned off when an HDR tool upgraded the game's R11G11B10 scene buffer to FP16 (Special K "HDR Remaster 11 bits"). FP16 is now accepted, and the history textures follow the scene buffer's format. (#56)
 
 ### Added
-- An installer script (`Install.bat` / `Install-AliasIsolationNEXT.ps1`). It installs, updates or removes the mod and picks the legacy build on CPUs without AVX2. It also skips or restores the intro videos, and installs or switches the DLSS 5 + LumeniteFX pack by running DLSS5-Feeder's official installer (nothing from that pack is bundled). It keeps the ASI loader as `d3d11.dll` and moves ReShade to `dxgi.dll` if needed.
-- A ReShade section in the menu when ReShade 6 with add-on support is loaded. It has switches for ReShade's effects as a whole and for each technique, without the debug views and DisplayDepth. Changes are saved in the ReShade preset.
+- An installer script (`Install.bat` / `Install-AliasIsolationNEXT.ps1`). Pressing Enter installs everything: the mod (the legacy build on CPUs without AVX2), skipped intro videos, and the DLSS 5 + LumeniteFX pack, which it gets by running DLSS5-Feeder's official installer after asking. It finds the game through Steam, the Epic Games Launcher or GOG; otherwise you paste the folder or pick it in a window. It keeps the ASI loader as `d3d11.dll` and moves ReShade to `dxgi.dll` if needed.
+- Alias Isolation in ReShade's **Home** tab (`AliasIsolation.fx`). The technique's checkbox switches the mod, and its sharpening, chromatic aberration, logo and intro-video options sit underneath. They stay in sync with `settings.txt`. The installer also hides DLSS5-Feeder's debug view and DisplayDepth from Home, and starts the Add-ons tab's entries collapsed.
+- The installer sets the DLSS 5 pack's HDR options (`hdr`, `hdr_bridge` in `dlss5-feed.cfg`; `HDR`, `ForceHDR`, `UseHDR10` in `host64\OptiScaler.ini`) from the monitors' Windows HDR state. The game always presents SDR, so with RTX HDR or Auto HDR they are set to SDR. "Auto" could take the SDR frame for HDR there, and the neural pass then looked like it did nothing. They are set to HDR only when Special K or RenoDX in the game folder makes the output HDR. Menu option 9 redoes this.
+- The crash message lists `module+offset` for each stack frame. Without a PDB every address in the mod was shown as the nearest export, which is likely why Epic crashes all read `aliasIsolation_hookableOverlayRender`.
+- A ReShade section in the menu when ReShade 6 with add-on support is loaded, used when `AliasIsolation.fx` is not installed. It has switches for ReShade's effects as a whole and for each technique, without the debug views and DisplayDepth. Changes are saved in the ReShade preset.
 - A "Skip intro videos" switch in the menu, which takes effect from the next launch.
 - `tools/Package-Release.ps1` builds the release archive, including the legacy AVX1/SSE3 builds.
 - An overlay in the top-left corner when the game isn't using SMAA T1x or Motion Blur, which the mod needs. It goes away once the setting is fixed or the mod is turned off.
@@ -29,3 +32,5 @@
 - The HDR fixes above are untested on HDR hardware, and the Windows Auto HDR "doubling" in #60 may have a second cause.
 - RTX HDR crash on some level loads (#67): the crash dumps point outside the mod's code, and the reporter's missing logo file may have been involved, which 1.3.0-fixes no longer touches. Needs retesting.
 - Barrel distortion (#73) and motion blur rework (#57): feature requests.
+- Known issues from the README (thin or ghosting particles, signs fading in, DoF showing the motion tracker's LEDs at the screen edges) are in the TAA compute shader, whose HLSL source was never published; only the compiled `taa_cs` is in the repository. Fixing them needs a rewritten TAA shader.
+- MotherVR support.

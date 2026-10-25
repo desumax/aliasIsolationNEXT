@@ -8,9 +8,16 @@
 #include <algorithm>
 #include <mutex>
 
+#include "introVideos.h"
+#include "settings.h"
+
+extern Settings g_settings;
+void requestShaderHooks(bool enable);
+
 // Shown in ReShade's add-on list.
 extern "C" __declspec(dllexport) const char *NAME = "Alias Isolation";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Lets the Alias Isolation menu switch ReShade effects.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION =
+    "Shows Alias Isolation in the Home tab (AliasIsolation.fx). Keep this enabled; the mod itself is switched in Home.";
 
 namespace
 {
@@ -49,12 +56,131 @@ bool containsNoCase(std::string haystack, std::string needle)
     return haystack.find(needle) != std::string::npos;
 }
 
+// --- The Home tab page (AliasIsolation.fx) ----------------------------------------------------------------------
+
+constexpr const char *s_homeEffect = "AliasIsolation.fx";
+constexpr const char *s_homeTechnique = "AliasIsolation";
+
+bool g_homePage = false;
+// Cleared again after ReShade reloads its effects, which resets the uniforms to the values in the preset.
+bool g_homePageSynced = false;
+bool g_homeTechniqueEnabled = true;
+bool g_homeSkipIntros = false;
+
+bool getBool(reshade::api::effect_runtime *runtime, const char *name, bool fallback)
+{
+    const reshade::api::effect_uniform_variable variable = runtime->find_uniform_variable(s_homeEffect, name);
+    if (variable == 0)
+    {
+        return fallback;
+    }
+    bool value = fallback;
+    runtime->get_uniform_value_bool(variable, &value, 1);
+    return value;
+}
+
+float getFloat(reshade::api::effect_runtime *runtime, const char *name, float fallback)
+{
+    const reshade::api::effect_uniform_variable variable = runtime->find_uniform_variable(s_homeEffect, name);
+    if (variable == 0)
+    {
+        return fallback;
+    }
+    float value = fallback;
+    runtime->get_uniform_value_float(variable, &value, 1);
+    return value;
+}
+
+void setBool(reshade::api::effect_runtime *runtime, const char *name, bool value)
+{
+    const reshade::api::effect_uniform_variable variable = runtime->find_uniform_variable(s_homeEffect, name);
+    if (variable != 0)
+    {
+        runtime->set_uniform_value_bool(variable, &value, 1);
+    }
+}
+
+void setFloat(reshade::api::effect_runtime *runtime, const char *name, float value)
+{
+    const reshade::api::effect_uniform_variable variable = runtime->find_uniform_variable(s_homeEffect, name);
+    if (variable != 0)
+    {
+        runtime->set_uniform_value_float(variable, &value, 1);
+    }
+}
+
+bool sameSettings(const Settings &a, const Settings &b)
+{
+    return a.sharpening == b.sharpening && a.sharpeningEnabled == b.sharpeningEnabled &&
+           a.chromaticAberration == b.chromaticAberration &&
+           a.chromaticAberrationEnabled == b.chromaticAberrationEnabled && a.showLogo == b.showLogo;
+}
+
+void syncHomePage(reshade::api::effect_runtime *runtime)
+{
+    const reshade::api::effect_technique technique = runtime->find_technique(s_homeEffect, s_homeTechnique);
+    g_homePage = technique != 0;
+    if (!g_homePage)
+    {
+        return;
+    }
+
+    const bool techniqueEnabled = runtime->get_technique_state(technique);
+
+    // settings.txt and the files on disk are the truth when the page first appears; after that the page is.
+    if (!g_homePageSynced)
+    {
+        g_homePageSynced = true;
+        setBool(runtime, "SharpeningEnabled", g_settings.sharpeningEnabled);
+        setFloat(runtime, "Sharpening", g_settings.sharpening);
+        setBool(runtime, "ChromaticAberrationEnabled", g_settings.chromaticAberrationEnabled);
+        setFloat(runtime, "ChromaticAberration", g_settings.chromaticAberration);
+        setBool(runtime, "ShowLogo", g_settings.showLogo);
+        g_homeSkipIntros = IntroVideos::getState() == IntroVideos::State::Skipped;
+        setBool(runtime, "SkipIntroVideos", g_homeSkipIntros);
+        g_homeTechniqueEnabled = techniqueEnabled;
+        requestShaderHooks(techniqueEnabled);
+        return;
+    }
+
+    if (techniqueEnabled != g_homeTechniqueEnabled)
+    {
+        g_homeTechniqueEnabled = techniqueEnabled;
+        requestShaderHooks(techniqueEnabled);
+    }
+
+    Settings values = g_settings;
+    values.sharpeningEnabled = getBool(runtime, "SharpeningEnabled", values.sharpeningEnabled);
+    values.sharpening = getFloat(runtime, "Sharpening", values.sharpening);
+    values.chromaticAberrationEnabled =
+        getBool(runtime, "ChromaticAberrationEnabled", values.chromaticAberrationEnabled);
+    values.chromaticAberration = getFloat(runtime, "ChromaticAberration", values.chromaticAberration);
+    values.showLogo = getBool(runtime, "ShowLogo", values.showLogo);
+    if (!sameSettings(values, g_settings))
+    {
+        g_settings = values;
+        saveSettings(g_settings);
+    }
+
+    const bool skipIntros = getBool(runtime, "SkipIntroVideos", g_homeSkipIntros);
+    if (skipIntros != g_homeSkipIntros)
+    {
+        IntroVideos::setSkipped(skipIntros);
+        // Show what actually happened, e.g. when the files were missing or couldn't be moved.
+        g_homeSkipIntros = IntroVideos::getState() == IntroVideos::State::Skipped;
+        if (g_homeSkipIntros != skipIntros)
+        {
+            setBool(runtime, "SkipIntroVideos", g_homeSkipIntros);
+        }
+    }
+}
+
 bool isHiddenTechnique(reshade::api::effect_runtime *runtime, reshade::api::effect_technique technique,
                        const std::string &effect, const std::string &name)
 {
     bool hidden = false;
     runtime->get_annotation_bool_from_technique(technique, "hidden", &hidden, 1);
-    return hidden || containsNoCase(name, "debug") || containsNoCase(effect, "DisplayDepth");
+    return hidden || containsNoCase(name, "debug") || containsNoCase(effect, "DisplayDepth") || effect == s_homeEffect;
 }
 
 void refreshTechniques(reshade::api::effect_runtime *runtime)
@@ -122,6 +248,7 @@ void onReShadePresent(reshade::api::effect_runtime *runtime)
     }
 
     g_effectsEnabled = runtime->get_effects_state();
+    syncHomePage(runtime);
 
     // Also refresh now and then, to pick up changes made in ReShade's overlay or with its hotkeys.
     static unsigned framesSinceRefresh = 0;
@@ -136,6 +263,7 @@ void onReShadeReloadedEffects(reshade::api::effect_runtime *)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_techniquesDirty = true;
+    g_homePageSynced = false;
 }
 
 void onDestroyEffectRuntime(reshade::api::effect_runtime *)
@@ -143,6 +271,8 @@ void onDestroyEffectRuntime(reshade::api::effect_runtime *)
     std::lock_guard<std::mutex> lock(g_mutex);
     g_runtimeSeen = false;
     g_techniques.clear();
+    g_homePage = false;
+    g_homePageSynced = false;
 }
 } // namespace
 
@@ -187,6 +317,12 @@ bool isAvailable()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_registration == Registration::Registered && g_runtimeSeen;
+}
+
+bool hasHomePage()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_registration == Registration::Registered && g_runtimeSeen && g_homePage;
 }
 
 bool getEffectsEnabled()

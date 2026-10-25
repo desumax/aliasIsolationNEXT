@@ -39,6 +39,9 @@ Copy-Item (Join-Path $V3Build '*.cso') $shaders
 # The TAA compute shader is only in the repository as compiled bytecode (under a .hlsl name).
 Copy-Item (Join-Path $repo 'data\shaders\taa_cs.hlsl') (Join-Path $shaders 'taa_cs.cso')
 Copy-Item (Join-Path $repo 'data\textures\aliasIsolationLogo.png') $textures
+$reshadeShaders = Join-Path $files 'reshade-shaders\Shaders'
+New-Item -ItemType Directory -Force $reshadeShaders | Out-Null
+Copy-Item (Join-Path $repo 'data\reshade\AliasIsolation.fx') $reshadeShaders
 
 Copy-Item (Join-Path $PSScriptRoot 'Install-AliasIsolationNEXT.ps1') $stage
 Copy-Item (Join-Path $PSScriptRoot 'Install.bat') $stage
