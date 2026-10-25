@@ -13,6 +13,10 @@
 - TAA silently turned off when an HDR tool upgraded the game's R11G11B10 scene buffer to FP16 (Special K "HDR Remaster 11 bits"). FP16 is now accepted, and the history textures follow the scene buffer's format. (#56)
 
 ### Added
+- An installer script (`Install.bat` / `Install-AliasIsolationNEXT.ps1`). It installs, updates or removes the mod and picks the legacy build on CPUs without AVX2. It also skips or restores the intro videos, and installs or switches the DLSS 5 + LumeniteFX pack by running DLSS5-Feeder's official installer (nothing from that pack is bundled). It keeps the ASI loader as `d3d11.dll` and moves ReShade to `dxgi.dll` if needed.
+- A ReShade section in the menu when ReShade 6 with add-on support is loaded. It has switches for ReShade's effects as a whole and for each technique, without the debug views and DisplayDepth. Changes are saved in the ReShade preset.
+- A "Skip intro videos" switch in the menu, which takes effect from the next launch.
+- `tools/Package-Release.ps1` builds the release archive, including the legacy AVX1/SSE3 builds.
 - An overlay in the top-left corner when the game isn't using SMAA T1x or Motion Blur, which the mod needs. It goes away once the setting is fixed or the mod is turned off.
 - "Show logo when a level loads" option (`showLogo` in `settings.txt`). When it is off, the logo texture is not loaded. (#72)
 - `ALIASISOLATION_CPU` build option (`V3`, `AVX1`, `SSE3`) for legacy CPU builds. (#64)

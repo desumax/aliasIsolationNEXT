@@ -6,6 +6,9 @@ The mod works by injecting itself into the executable, and hijacking D3D11 calls
 Suggestions for new features or pull requests for this mod are welcome!
 
 ## Installation instructions
+**Alias Isolation NEXT:** extract `AliasIsolationNEXT-<version>.zip` anywhere and double-click `Install.bat`. The menu installs, updates or removes the mod, skips or restores the intro videos, and can install the optional DLSS 5 + LumeniteFX pack through [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder)'s own installer. To install by hand, copy the contents of the `files` folder (without `legacy`) next to `AI.exe`.
+
+The original 1.2.0 archive layout:
 Extract the following files from the `AliasIsolation-<version>.7z` archive, obtainable via the releases page, to the folder where _Alien: Isolation_ is installed (you should be in a folder that has a file called `AI.exe`):
 1. Extract the `mods` folder to your _Alien: Isolation_ folder.
 2. Extract `aliasIsolation.asi` and `d3d11.dll` to your _Alien: Isolation_ folder.
@@ -41,7 +44,11 @@ Settings are saved to `mods\aliasIsolation\settings.txt`, which is created with 
 | `chromaticAberration` | `0.5` | 0 to 1 |
 | `showLogo` | `1` | Set to `0` to hide the logo shown when a level loads |
 
+## ReShade and intro videos
+With ReShade 6 (add-on support) loaded, the mod menu gets a **ReShade** section with switches for ReShade's effects as a whole and for each technique, such as DLSS 5 Feed and LUMENITE. Changes are saved in ReShade's preset. **Skip intro videos** moves the three logo videos from `DATA\UI\MOVIES` to `_intro-videos-backup` and takes effect from the next launch.
+
 ## Uninstalling
+`Install.bat` > *Remove Alias Isolation* does this for you, or by hand:
 Delete `aliasIsolation.asi`, `d3d11.dll` and the `mods\aliasIsolation` folder from the _Alien: Isolation_ folder. Keep `d3d11.dll` if another ASI mod still needs the loader.
 
 ## Known issues
