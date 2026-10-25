@@ -1,6 +1,8 @@
 #include "menu.h"
 #include "common.h"
 #include "frameConstants.h"
+#include "introVideos.h"
+#include "reshadeBridge.h"
 #include "settings.h"
 
 #include <backends/imgui_impl_dx11.h>
@@ -284,6 +286,70 @@ void Menu::InitMenu(IDXGISwapChain &swapChain)
     g_menuInitialised = true;
 }
 
+// Switches for ReShade's effects, such as DLSS 5 (DLSS5-Feeder) and LumeniteFX. ReShade saves them in its preset, so
+// they don't need "Save Settings".
+static void DrawReShadeSection()
+{
+    if (!ReShadeBridge::isAvailable())
+    {
+        return;
+    }
+
+    ImGui::SeparatorText("ReShade");
+
+    bool effectsEnabled = ReShadeBridge::getEffectsEnabled();
+    if (ImGui::Checkbox("ReShade effects", &effectsEnabled))
+    {
+        ReShadeBridge::setEffectsEnabled(effectsEnabled);
+    }
+
+    ImGui::BeginDisabled(!effectsEnabled);
+    ImGui::Indent();
+    for (const ReShadeBridge::Technique &technique : ReShadeBridge::getTechniques())
+    {
+        bool enabled = technique.enabled;
+        const std::string id = technique.label + "##" + technique.effect + "/" + technique.name;
+        if (ImGui::Checkbox(id.c_str(), &enabled))
+        {
+            ReShadeBridge::setTechniqueEnabled(technique, enabled);
+        }
+    }
+    ImGui::Unindent();
+    ImGui::EndDisabled();
+}
+
+static void DrawIntroVideosSection()
+{
+    static bool stateRead = false;
+    static IntroVideos::State state;
+    static bool moveFailed = false;
+    if (!stateRead)
+    {
+        stateRead = true;
+        state = IntroVideos::getState();
+    }
+
+    ImGui::SeparatorText("Startup");
+
+    if (state == IntroVideos::State::Unknown)
+    {
+        ImGui::TextDisabled("Intro videos: files missing or partly moved.");
+        ImGui::TextDisabled("The installer script can restore them.");
+        return;
+    }
+
+    bool skipped = state == IntroVideos::State::Skipped;
+    if (ImGui::Checkbox("Skip intro videos (from the next launch)", &skipped))
+    {
+        moveFailed = !IntroVideos::setSkipped(skipped);
+        state = IntroVideos::getState();
+    }
+    if (moveFailed)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Couldn't move the videos. Is the game folder read-only?");
+    }
+}
+
 // Shown on top of the game, menu open or not, until the video settings are fixed or the mod is disabled.
 static void DrawSettingsWarning()
 {
@@ -458,6 +524,9 @@ void Menu::DrawMenu()
                 {
                     saveSettings(g_settings);
                 }
+
+                DrawReShadeSection();
+                DrawIntroVideosSection();
 
                 ImGui::End();
             }

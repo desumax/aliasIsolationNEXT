@@ -23,7 +23,7 @@ endif()
 
 target_link_libraries(aliasIsolation PUBLIC crashHandler imgui minhook TracyClient d3dcompiler.lib d3d11.lib)
 target_include_directories(aliasIsolation PRIVATE ../crashHandler 
-../external/glm ../external/stb ../external/tracy/public)
+../external/glm ../external/stb ../external/tracy/public ../external/reshade/include)
 target_compile_definitions(aliasIsolation PRIVATE GLM_FORCE_CTOR_INIT)
 if(ALIASISOLATION_CPU STREQUAL "SSE3")
     target_compile_definitions(aliasIsolation PRIVATE GLM_FORCE_SSE3)
@@ -33,4 +33,4 @@ endif()
 target_compile_options(aliasIsolation PRIVATE -Wno-microsoft-cast)
 target_sources(aliasIsolation PRIVATE dllMain.cpp menu.cpp methodHook.cpp post.cpp 
 profiler.cpp rendering.cpp resourceUtil.cpp settings.cpp shaderHooks.cpp shaderRegistry.cpp 
-taa.cpp utilities.cpp)
+taa.cpp utilities.cpp introVideos.cpp reshadeBridge.cpp)

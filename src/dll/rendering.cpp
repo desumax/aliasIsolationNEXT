@@ -20,6 +20,7 @@
 #include "methodHook.h"
 #include "post.h"
 #include "profiler.h"
+#include "reshadeBridge.h"
 #include "resourceUtil.h"
 #include "settings.h"
 #include "shaderHooks.h"
@@ -339,6 +340,7 @@ HRESULT WINAPI Present_hook(IDXGISwapChain *swapChain, UINT SyncInterval, UINT F
     {
         ZoneScopedN("Present_hook Menu::DrawMenu");
         checkVideoSettings();
+        ReShadeBridge::update();
         Menu::DrawMenu();
     }
 
